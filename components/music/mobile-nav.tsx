@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Home, Search, Library, Heart, User, LogOut, Loader2, PartyPopper } from 'lucide-react'
+import { Home, Search, Heart, User, LogOut, Loader2, PartyPopper } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 
@@ -40,24 +40,19 @@ export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setUser(user)
-      
       if (user) {
         const { data: profileData } = await supabase
           .from("profiles")
           .select("*")
           .eq("id", user.id)
           .single()
-        
         setProfile(profileData)
       }
     }
-
     getUser()
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
     })
-
     return () => subscription.unsubscribe()
   }, [supabase])
 
@@ -79,43 +74,33 @@ export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
   ]
 
   return (
-    <nav className="md:hidden fixed bottom-20 left-0 right-0 bg-card/95 backdrop-blur-xl border-t border-border z-40">
-      <div className="flex items-center justify-around h-16">
+    <nav className="bg-card/95 backdrop-blur-xl border-t border-border">
+      <div className="flex items-center justify-around h-14">
         {navItems.map((item) => {
           const Icon = item.icon
           const isActive = activeTab === item.id
-
           return (
             <Button
               key={item.id}
               variant="ghost"
               className={cn(
-                "flex-1 h-full flex-col gap-1 rounded-none",
+                "flex-1 h-full flex-col gap-0.5 rounded-none py-2",
                 isActive && "text-primary"
               )}
               onClick={() => onTabChange(item.id)}
             >
-              <Icon className={cn(
-                "w-5 h-5",
-                isActive ? "text-primary" : "text-muted-foreground"
-              )} />
-              <span className={cn(
-                "text-[10px]",
-                isActive ? "text-primary" : "text-muted-foreground"
-              )}>
+              <Icon className={cn("w-5 h-5", isActive ? "text-primary" : "text-muted-foreground")} />
+              <span className={cn("text-[10px]", isActive ? "text-primary" : "text-muted-foreground")}>
                 {item.label}
               </span>
             </Button>
           )
         })}
 
-        {/* Profile Button */}
+        {/* Profile */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              className="flex-1 h-full flex-col gap-1 rounded-none"
-            >
+            <Button variant="ghost" className="flex-1 h-full flex-col gap-0.5 rounded-none py-2">
               <Avatar className="w-5 h-5">
                 <AvatarImage src={profile?.avatar_url || undefined} />
                 <AvatarFallback className="bg-primary text-primary-foreground text-[10px]">
@@ -136,16 +121,8 @@ export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
               Profil
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem 
-              onClick={handleSignOut}
-              disabled={signingOut}
-              className="text-destructive focus:text-destructive"
-            >
-              {signingOut ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <LogOut className="mr-2 h-4 w-4" />
-              )}
+            <DropdownMenuItem onClick={handleSignOut} disabled={signingOut} className="text-destructive focus:text-destructive">
+              {signingOut ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
               Çıkış Yap
             </DropdownMenuItem>
           </DropdownMenuContent>

@@ -45,8 +45,8 @@ export default function MusicApp() {
   return (
     <div className="h-dvh flex flex-col bg-background overflow-hidden">
       <div className="flex flex-1 overflow-hidden">
-        {/* Desktop Sidebar */}
-        <div className="hidden md:block">
+        {/* Desktop Sidebar - sadece md ve üstünde görünür */}
+        <div className="hidden md:flex md:flex-shrink-0">
           <Sidebar 
             activeTab={activeTab} 
             onTabChange={setActiveTab}
@@ -56,15 +56,17 @@ export default function MusicApp() {
         </div>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 overflow-hidden min-w-0">
           {renderContent()}
         </main>
       </div>
 
-      {/* Mobile Bottom Navigation */}
-      <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />
+      {/* Mobile Bottom Navigation - sadece mobilde görünür */}
+      <div className="md:hidden">
+        <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />
+      </div>
 
-      {/* Player */}
+      {/* Player - her zaman altta */}
       <Player />
     </div>
   )
