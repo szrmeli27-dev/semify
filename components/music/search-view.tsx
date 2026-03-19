@@ -173,10 +173,11 @@ export function SearchView({ initialQuery = '' }: SearchViewProps) {
                         <div
                           key={`${track.id}-${index}`}
                           className={cn(
-                            "group flex items-center gap-4 p-3 rounded-lg transition-colors",
+                            "group flex items-center gap-4 p-3 rounded-lg transition-colors cursor-pointer",
                             "hover:bg-secondary/80",
                             isCurrentTrack && "bg-secondary"
                           )}
+                          onClick={() => handlePlayTrack(track)}
                         >
                           {/* Thumbnail with play button */}
                           <div className="relative flex-shrink-0">
@@ -214,7 +215,7 @@ export function SearchView({ initialQuery = '' }: SearchViewProps) {
                           </div>
 
                           {/* Actions */}
-                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
                             <Button
                               variant="ghost"
                               size="icon"
