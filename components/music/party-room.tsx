@@ -28,6 +28,7 @@ interface PartyRoomData {
   members: PartyMember[]
   currentTrack: Track | null
   isPlaying: boolean
+  currentTimeSeconds: number
   queue: Track[]
   updatedAt: number
 }
@@ -45,23 +46,66 @@ function formatTime(ts: number) {
 
 const supabase = createClient()
 
+// Global party state store
+interface PartyStore {
+  room: PartyRoomData | null
+  partyCode: string
+  isHost: boolean
+  setRoom: (room: PartyRoomData | null) => void
+  setPartyCode: (code: string) => void
+  setIsHost: (isHost: boolean) => void
+}
+
+let globalPartyStore: PartyStore = {
+  room: null,
+  partyCode: '',
+  isHost: false,
+  setRoom: () => {},
+  setPartyCode: () => {},
+  setIsHost: () => {},
+}
+
+// Export for use in other components
+export function usePartyState() {
+  const [room, setRoom] = useState<PartyRoomData | null>(globalPartyStore.room)
+  const [partyCode, setPartyCode] = useState(globalPartyStore.partyCode)
+  const [isHost, setIsHost] = useState(globalPartyStore.isHost)
+
+  useEffect(() => {
+    globalPartyStore = {
+      room,
+      partyCode,
+      isHost,
+      setRoom,
+      setPartyCode,
+      setIsHost,
+    }
+  }, [room, partyCode, isHost])
+
+  return { room, partyCode, isHost, setRoom, setPartyCode, setIsHost }
+}
+
 export function PartyRoomView() {
-  const { currentTrack, isPlaying, queue, playTrack, togglePlay, nextTrack, previousTrack } = useMusicPlayer()
+  const { 
+    currentTrack, isPlaying, queue, progress,
+    playTrack, togglePlay, nextTrack, previousTrack, 
+    setProgress, setIsPlaying 
+  } = useMusicPlayer()
 
-  const [myId,          setMyId]          = useState<string>('')
-  const [myName,        setMyName]        = useState('Kullanici')
-  const [nameInput,     setNameInput]     = useState('')
+  const [myId, setMyId] = useState<string>('')
+  const [myName, setMyName] = useState('Kullanici')
+  const [nameInput, setNameInput] = useState('')
   const [showNameInput, setShowNameInput] = useState(false)
-  const [partyCode,     setPartyCode]     = useState('')
-  const [joinCode,      setJoinCode]      = useState('')
-  const [room,          setRoom]          = useState<PartyRoomData | null>(null)
-  const [copied,        setCopied]        = useState(false)
-  const [error,         setError]         = useState('')
-  const [loading,       setLoading]       = useState(false)
+  const { room, partyCode, isHost, setRoom, setPartyCode, setIsHost } = usePartyState()
+  const [joinCode, setJoinCode] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const channelRef     = useRef<RealtimeChannel | null>(null)
+  const channelRef = useRef<RealtimeChannel | null>(null)
   const lastTrackIdRef = useRef<string | null>(null)
-  const isHostRef      = useRef(false)
+  const lastSyncRef = useRef<number>(0)
+  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -76,7 +120,41 @@ export function PartyRoomView() {
     })
   }, [])
 
-  const isHost = room?.hostId === myId
+  // Host: Sync current playback state to database periodically
+  useEffect(() => {
+    if (!isHost || !partyCode) return
+
+    const syncPlaybackState = async () => {
+      const now = Date.now()
+      // Throttle updates to every 2 seconds
+      if (now - lastSyncRef.current < 2000) return
+      lastSyncRef.current = now
+
+      await supabase
+        .from('party_rooms')
+        .update({
+          current_track: currentTrack,
+          is_playing: isPlaying,
+          current_time_seconds: progress,
+          queue,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('code', partyCode)
+    }
+
+    syncPlaybackState()
+
+    // Set up interval for continuous sync while playing
+    if (isPlaying) {
+      syncIntervalRef.current = setInterval(syncPlaybackState, 3000)
+    }
+
+    return () => {
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current)
+      }
+    }
+  }, [isHost, partyCode, currentTrack?.id, isPlaying, progress, queue])
 
   const subscribeToRoom = useCallback(
     (code: string, hostId: string) => {
@@ -88,24 +166,49 @@ export function PartyRoomView() {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'party_rooms', filter: 'code=eq.' + code },
           (payload) => {
-            if (payload.eventType === 'DELETE') { setRoom(null); return }
-            const r = payload.new as any
+            if (payload.eventType === 'DELETE') {
+              setRoom(null)
+              setPartyCode('')
+              setIsHost(false)
+              return
+            }
+            const r = payload.new as {
+              code: string
+              host_id: string
+              current_track: Track | null
+              is_playing: boolean
+              current_time_seconds: number
+              queue: Track[]
+              updated_at: string
+            }
+
             setRoom((prev) => {
               const updated: PartyRoomData = {
                 code: r.code,
                 hostId: r.host_id,
                 currentTrack: r.current_track,
                 isPlaying: r.is_playing,
+                currentTimeSeconds: r.current_time_seconds || 0,
                 queue: r.queue ?? [],
                 updatedAt: new Date(r.updated_at).getTime(),
                 members: prev?.members ?? [],
               }
-              if (!isHostRef.current && r.current_track) {
+
+              // Only sync playback for non-hosts
+              if (r.host_id !== myId && r.current_track) {
+                // Track changed - load new track and seek to current position
                 if (r.current_track.id !== lastTrackIdRef.current) {
                   lastTrackIdRef.current = r.current_track.id
                   playTrack(r.current_track, r.queue ?? [])
+                  // Small delay then seek to synced position
+                  setTimeout(() => {
+                    setProgress(r.current_time_seconds || 0)
+                  }, 500)
                 }
+                // Sync play/pause state
+                setIsPlaying(r.is_playing)
               }
+
               return updated
             })
           }
@@ -121,7 +224,7 @@ export function PartyRoomView() {
               .order('joined_at', { ascending: true })
 
             if (data) {
-              const members: PartyMember[] = data.map((m: any) => ({
+              const members: PartyMember[] = data.map((m) => ({
                 id: m.user_id,
                 name: m.display_name,
                 joinedAt: new Date(m.joined_at).getTime(),
@@ -135,25 +238,13 @@ export function PartyRoomView() {
 
       channelRef.current = channel
     },
-    [playTrack]
+    [playTrack, setProgress, setIsPlaying, myId, setRoom, setPartyCode, setIsHost]
   )
 
   useEffect(() => {
-    if (!isHost || !room || !partyCode) return
-    supabase
-      .from('party_rooms')
-      .update({
-        current_track: currentTrack,
-        is_playing: isPlaying,
-        queue,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('code', partyCode)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack?.id, isPlaying])
-
-  useEffect(() => {
-    return () => { if (channelRef.current) supabase.removeChannel(channelRef.current) }
+    return () => {
+      if (channelRef.current) supabase.removeChannel(channelRef.current)
+    }
   }, [])
 
   const createRoom = async () => {
@@ -167,11 +258,16 @@ export function PartyRoomView() {
       host_name: myName,
       current_track: currentTrack,
       is_playing: isPlaying,
+      current_time_seconds: progress,
       queue,
       updated_at: new Date().toISOString(),
     })
 
-    if (roomErr) { setError('Oda olusturulamadi'); setLoading(false); return }
+    if (roomErr) {
+      setError('Oda olusturulamadi')
+      setLoading(false)
+      return
+    }
 
     await supabase.from('party_members').insert({
       room_code: code,
@@ -185,10 +281,11 @@ export function PartyRoomView() {
       members: [{ id: myId, name: myName, joinedAt: Date.now(), isHost: true }],
       currentTrack,
       isPlaying,
+      currentTimeSeconds: progress,
       queue,
       updatedAt: Date.now(),
     }
-    isHostRef.current = true
+    setIsHost(true)
     setPartyCode(code)
     setRoom(newRoom)
     setError('')
@@ -198,7 +295,10 @@ export function PartyRoomView() {
 
   const joinRoom = async () => {
     const code = joinCode.trim().toUpperCase()
-    if (code.length < 4) { setError('Gecerli bir oda kodu girin'); return }
+    if (code.length < 4) {
+      setError('Gecerli bir oda kodu girin')
+      return
+    }
     if (!myId) return
     setLoading(true)
 
@@ -226,7 +326,7 @@ export function PartyRoomView() {
       .eq('room_code', code)
       .order('joined_at', { ascending: true })
 
-    const members: PartyMember[] = (membersData ?? []).map((m: any) => ({
+    const members: PartyMember[] = (membersData ?? []).map((m) => ({
       id: m.user_id,
       name: m.display_name,
       joinedAt: new Date(m.joined_at).getTime(),
@@ -239,20 +339,27 @@ export function PartyRoomView() {
       members,
       currentTrack: roomData.current_track,
       isPlaying: roomData.is_playing,
+      currentTimeSeconds: roomData.current_time_seconds || 0,
       queue: roomData.queue ?? [],
       updatedAt: new Date(roomData.updated_at).getTime(),
     }
 
-    isHostRef.current = false
+    setIsHost(false)
     setPartyCode(code)
     setRoom(joinedRoom)
     setJoinCode('')
     setError('')
     subscribeToRoom(code, roomData.host_id)
 
+    // Immediately sync to host's playback state
     if (roomData.current_track) {
       lastTrackIdRef.current = roomData.current_track.id
       playTrack(roomData.current_track, roomData.queue ?? [])
+      // Seek to current position with small delay
+      setTimeout(() => {
+        setProgress(roomData.current_time_seconds || 0)
+        setIsPlaying(roomData.is_playing)
+      }, 500)
     }
     setLoading(false)
   }
@@ -266,7 +373,7 @@ export function PartyRoomView() {
     }
     setRoom(null)
     setPartyCode('')
-    isHostRef.current = false
+    setIsHost(false)
   }
 
   const copyCode = () => {
@@ -285,24 +392,53 @@ export function PartyRoomView() {
                 <PartyPopper className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-foreground">Parti Odası</h1>
-                <p className="text-xs text-muted-foreground">Arkadaşlarınla birlikte dinle</p>
+                <h1 className="text-lg font-bold text-foreground">Parti Odasi</h1>
+                <p className="text-xs text-muted-foreground">Arkadaslarinla birlikte dinle</p>
               </div>
             </div>
 
             <div className="p-4 rounded-xl bg-card border border-border">
-              <p className="text-xs text-muted-foreground mb-2">Görünen İsmin</p>
+              <p className="text-xs text-muted-foreground mb-2">Gorunen Ismin</p>
               {showNameInput ? (
                 <div className="flex gap-2">
-                  <Input value={nameInput} onChange={(e) => setNameInput(e.target.value)}
-                    placeholder="İsmin..." className="flex-1"
-                    onKeyDown={(e) => { if (e.key === 'Enter' && nameInput.trim()) { setMyName(nameInput.trim()); setShowNameInput(false) } }} />
-                  <Button size="sm" onClick={() => { if (nameInput.trim()) { setMyName(nameInput.trim()); setShowNameInput(false) } }}>Kaydet</Button>
+                  <Input
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    placeholder="Ismin..."
+                    className="flex-1"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && nameInput.trim()) {
+                        setMyName(nameInput.trim())
+                        setShowNameInput(false)
+                      }
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      if (nameInput.trim()) {
+                        setMyName(nameInput.trim())
+                        setShowNameInput(false)
+                      }
+                    }}
+                  >
+                    Kaydet
+                  </Button>
                 </div>
               ) : (
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-foreground">{myName}</span>
-                  <Button variant="ghost" size="sm" className="text-primary" onClick={() => { setNameInput(myName); setShowNameInput(true) }}>Değiştir</Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-primary"
+                    onClick={() => {
+                      setNameInput(myName)
+                      setShowNameInput(true)
+                    }}
+                  >
+                    Degistir
+                  </Button>
                 </div>
               )}
             </div>
@@ -313,9 +449,14 @@ export function PartyRoomView() {
                   <Plus className="w-5 h-5 text-purple-400" />
                 </div>
                 <h3 className="font-bold text-foreground mb-1">Oda Kur</h3>
-                <p className="text-sm text-muted-foreground mb-4">Kendi parti odanı oluştur</p>
-                <Button onClick={createRoom} disabled={loading} className="w-full bg-purple-600 hover:bg-purple-700 text-white">
-                  <Plus className="w-4 h-4 mr-2" />{loading ? 'Oluşturuluyor...' : 'Oda Oluştur'}
+                <p className="text-sm text-muted-foreground mb-4">Kendi parti odani olustur</p>
+                <Button
+                  onClick={createRoom}
+                  disabled={loading}
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  {loading ? 'Olusturuluyor...' : 'Oda Olustur'}
                 </Button>
               </div>
 
@@ -323,16 +464,28 @@ export function PartyRoomView() {
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center mb-3">
                   <LogIn className="w-5 h-5 text-emerald-400" />
                 </div>
-                <h3 className="font-bold text-foreground mb-1">Odaya Katıl</h3>
-                <p className="text-sm text-muted-foreground mb-4">Oda kodunu girerek katıl</p>
+                <h3 className="font-bold text-foreground mb-1">Odaya Katil</h3>
+                <p className="text-sm text-muted-foreground mb-4">Oda kodunu girerek katil</p>
                 <div className="space-y-2">
-                  <Input value={joinCode} onChange={(e) => { setJoinCode(e.target.value.toUpperCase()); setError('') }}
-                    placeholder="ODA KODU" maxLength={6}
+                  <Input
+                    value={joinCode}
+                    onChange={(e) => {
+                      setJoinCode(e.target.value.toUpperCase())
+                      setError('')
+                    }}
+                    placeholder="ODA KODU"
+                    maxLength={6}
                     className="uppercase font-mono tracking-widest text-center text-lg font-bold"
-                    onKeyDown={(e) => e.key === 'Enter' && joinRoom()} />
+                    onKeyDown={(e) => e.key === 'Enter' && joinRoom()}
+                  />
                   {error && <p className="text-xs text-destructive text-center">{error}</p>}
-                  <Button onClick={joinRoom} disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
-                    <LogIn className="w-4 h-4 mr-2" />{loading ? 'Bağlanıyor...' : 'Katıl'}
+                  <Button
+                    onClick={joinRoom}
+                    disabled={loading}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    <LogIn className="w-4 h-4 mr-2" />
+                    {loading ? 'Baglaniyor...' : 'Katil'}
                   </Button>
                 </div>
               </div>
@@ -340,12 +493,14 @@ export function PartyRoomView() {
 
             <div className="p-5 rounded-xl bg-card border border-border">
               <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
-                <Radio className="w-4 h-4 text-primary" />Nasıl Çalışır?
+                <Radio className="w-4 h-4 text-primary" />
+                Nasil Calisir?
               </h3>
               <div className="space-y-1.5 text-sm text-muted-foreground">
-                <p>1. Oda oluştur ve 6 haneli kodu arkadaşına gönder</p>
-                <p>2. Arkadaşın herhangi bir cihazdan kodu girerek katılır</p>
-                <p>3. Oda sahibi müziği kontrol eder, herkes aynı şarkıyı dinler</p>
+                <p>1. Oda olustur ve 6 haneli kodu arkadasina gonder</p>
+                <p>2. Arkadasin herhangi bir cihazdan kodu girerek katilir</p>
+                <p>3. Oda sahibi muzigi kontrol eder, herkes ayni sarkiyi dinler</p>
+                <p>4. Katilimcilar sarki hangi saniyedeyse o saniyeden dinlemeye baslar</p>
               </div>
             </div>
           </div>
@@ -367,19 +522,26 @@ export function PartyRoomView() {
               </div>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className="text-lg font-bold text-foreground">Parti Odası</h1>
+                  <h1 className="text-lg font-bold text-foreground">Parti Odasi</h1>
                   {isHost && (
                     <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-xs">
-                      <Crown className="w-3 h-3 mr-1" />Ev Sahibi
+                      <Crown className="w-3 h-3 mr-1" />
+                      Ev Sahibi
                     </Badge>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Users className="w-3 h-3" />{members.length} kişi
+                  <Users className="w-3 h-3" />
+                  {members.length} kisi
                 </p>
               </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={leaveRoom} className="text-muted-foreground hover:text-destructive">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={leaveRoom}
+              className="text-muted-foreground hover:text-destructive"
+            >
               <X className="w-5 h-5" />
             </Button>
           </div>
@@ -388,68 +550,134 @@ export function PartyRoomView() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Oda Kodu</p>
-                <p className="text-2xl md:text-3xl font-bold text-foreground tracking-[0.25em] font-mono">{partyCode}</p>
+                <p className="text-2xl md:text-3xl font-bold text-foreground tracking-[0.25em] font-mono">
+                  {partyCode}
+                </p>
               </div>
-              <Button variant="outline" size="sm" onClick={copyCode} className="gap-2 border-purple-500/30 flex-shrink-0">
-                {copied ? <><Check className="w-4 h-4 text-emerald-400" />Kopyalandı</> : <><Copy className="w-4 h-4" />Kopyala</>}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={copyCode}
+                className="gap-2 border-purple-500/30 flex-shrink-0"
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    Kopyalandi
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    Kopyala
+                  </>
+                )}
               </Button>
             </div>
           </div>
 
+          {/* Host info message */}
+          {isHost && (
+            <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 mb-5">
+              <p className="text-sm text-foreground">
+                Sen ev sahibisin! Ana sayfaya gidip sarki secebilirsin - sectigin sarki tum katilimcilara anlik olarak yansiyacak.
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 rounded-xl bg-card border border-border">
               <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2 text-sm">
-                <Music2 className="w-4 h-4 text-primary" />Şu An Çalıyor
+                <Music2 className="w-4 h-4 text-primary" />
+                Su An Caliyor
               </h3>
               {room.currentTrack ? (
                 <div className="space-y-3">
                   <div className="flex gap-3">
-                    <img src={room.currentTrack.thumbnail} alt={room.currentTrack.title}
-                      className="w-12 h-12 rounded-lg object-cover shadow-md flex-shrink-0" />
+                    <img
+                      src={room.currentTrack.thumbnail}
+                      alt={room.currentTrack.title}
+                      className="w-12 h-12 rounded-lg object-cover shadow-md flex-shrink-0"
+                    />
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-sm text-foreground truncate">{room.currentTrack.title}</p>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">{room.currentTrack.artist}</p>
+                      <p className="font-medium text-sm text-foreground truncate">
+                        {room.currentTrack.title}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {room.currentTrack.artist}
+                      </p>
                       <div className="flex items-center gap-1 mt-1">
-                        <div className={cn("w-2 h-2 rounded-full", room.isPlaying ? "bg-primary animate-pulse" : "bg-muted-foreground")} />
-                        <span className="text-xs text-muted-foreground">{room.isPlaying ? 'Çalıyor' : 'Duraklatıldı'}</span>
+                        <div
+                          className={cn(
+                            'w-2 h-2 rounded-full',
+                            isPlaying ? 'bg-primary animate-pulse' : 'bg-muted-foreground'
+                          )}
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {isPlaying ? 'Caliyor' : 'Duraklatildi'}
+                        </span>
                       </div>
                     </div>
                   </div>
                   {isHost && (
                     <div className="flex items-center justify-center gap-2 pt-2 border-t border-border">
-                      <Button variant="ghost" size="icon" className="w-8 h-8" onClick={previousTrack}><SkipBack className="w-4 h-4" /></Button>
-                      <Button size="icon" className="w-10 h-10 rounded-full bg-primary text-primary-foreground" onClick={togglePlay}>
+                      <Button variant="ghost" size="icon" className="w-8 h-8" onClick={previousTrack}>
+                        <SkipBack className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        className="w-10 h-10 rounded-full bg-primary text-primary-foreground"
+                        onClick={togglePlay}
+                      >
                         {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
                       </Button>
-                      <Button variant="ghost" size="icon" className="w-8 h-8" onClick={nextTrack}><SkipForward className="w-4 h-4" /></Button>
+                      <Button variant="ghost" size="icon" className="w-8 h-8" onClick={nextTrack}>
+                        <SkipForward className="w-4 h-4" />
+                      </Button>
                     </div>
                   )}
-                  {!isHost && <p className="text-xs text-center text-muted-foreground pt-2 border-t border-border">Müziği sadece oda sahibi kontrol edebilir</p>}
+                  {!isHost && (
+                    <p className="text-xs text-center text-muted-foreground pt-2 border-t border-border">
+                      Muzigi sadece oda sahibi kontrol edebilir
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-4 text-muted-foreground">
                   <Music2 className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">{isHost ? 'Ana ekrandan bir şarkı seç' : 'Oda sahibi şarkı seçsin...'}</p>
+                  <p className="text-sm">
+                    {isHost ? 'Ana ekrandan bir sarki sec' : 'Oda sahibi sarki secsin...'}
+                  </p>
                 </div>
               )}
             </div>
 
             <div className="p-4 rounded-xl bg-card border border-border">
               <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2 text-sm">
-                <Users className="w-4 h-4 text-primary" />Odadaki Kişiler ({members.length})
+                <Users className="w-4 h-4 text-primary" />
+                Odadaki Kisiler ({members.length})
               </h3>
               <div className="space-y-2">
                 {members.map((member) => (
-                  <div key={member.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/50 transition-colors">
-                    <div className={cn(
-                      "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0",
-                      member.isHost ? "bg-gradient-to-br from-yellow-400 to-orange-500 text-white" : "bg-secondary text-foreground"
-                    )}>
+                  <div
+                    key={member.id}
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/50 transition-colors"
+                  >
+                    <div
+                      className={cn(
+                        'w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0',
+                        member.isHost
+                          ? 'bg-gradient-to-br from-yellow-400 to-orange-500 text-white'
+                          : 'bg-secondary text-foreground'
+                      )}
+                    >
                       {member.name.slice(0, 1).toUpperCase()}
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-foreground truncate">
-                        {member.name}{member.id === myId && <span className="ml-1 text-xs text-primary">(Sen)</span>}
+                        {member.name}
+                        {member.id === myId && (
+                          <span className="ml-1 text-xs text-primary">(Sen)</span>
+                        )}
                       </p>
                       <p className="text-xs text-muted-foreground">{formatTime(member.joinedAt)}</p>
                     </div>
