@@ -90,6 +90,8 @@ export function PartyRoomView() {
           (payload) => {
             if (payload.eventType === 'DELETE') { setRoom(null); return }
             const r = payload.new as any
+            
+            // First update room state
             setRoom((prev) => {
               const updated: PartyRoomData = {
                 code: r.code,
@@ -100,34 +102,47 @@ export function PartyRoomView() {
                 updatedAt: new Date(r.updated_at).getTime(),
                 members: prev?.members ?? [],
               }
-              if (!isHostRef.current && r.current_track) {
-                if (r.current_track.id !== lastTrackIdRef.current) {
-                  lastTrackIdRef.current = r.current_track.id
-                  playTrack(r.current_track, r.queue ?? [])
-                }
-              }
               return updated
             })
+            
+            // Then handle track sync for non-hosts (outside of setRoom to avoid issues)
+            if (!isHostRef.current && r.current_track) {
+              if (r.current_track.id !== lastTrackIdRef.current) {
+                lastTrackIdRef.current = r.current_track.id
+                // Use setTimeout to ensure state update completes first
+                setTimeout(() => {
+                  try {
+                    playTrack(r.current_track, r.queue ?? [])
+                  } catch (e) {
+                    console.error('Error playing track:', e)
+                  }
+                }, 100)
+              }
+            }
           }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'party_members', filter: 'room_code=eq.' + code },
           async () => {
-            const { data } = await supabase
-              .from('party_members')
-              .select('user_id, display_name, joined_at')
-              .eq('room_code', code)
-              .order('joined_at', { ascending: true })
+            try {
+              const { data } = await supabase
+                .from('party_members')
+                .select('user_id, display_name, joined_at')
+                .eq('room_code', code)
+                .order('joined_at', { ascending: true })
 
-            if (data) {
-              const members: PartyMember[] = data.map((m: any) => ({
-                id: m.user_id,
-                name: m.display_name,
-                joinedAt: new Date(m.joined_at).getTime(),
-                isHost: m.user_id === hostId,
-              }))
-              setRoom((prev) => (prev ? { ...prev, members } : prev))
+              if (data) {
+                const members: PartyMember[] = data.map((m: any) => ({
+                  id: m.user_id,
+                  name: m.display_name,
+                  joinedAt: new Date(m.joined_at).getTime(),
+                  isHost: m.user_id === hostId,
+                }))
+                setRoom((prev) => (prev ? { ...prev, members } : prev))
+              }
+            } catch (e) {
+              console.error('Error fetching members:', e)
             }
           }
         )
@@ -140,15 +155,24 @@ export function PartyRoomView() {
 
   useEffect(() => {
     if (!isHost || !room || !partyCode) return
-    supabase
-      .from('party_rooms')
-      .update({
-        current_track: currentTrack,
-        is_playing: isPlaying,
-        queue,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('code', partyCode)
+    
+    const syncToRoom = async () => {
+      try {
+        await supabase
+          .from('party_rooms')
+          .update({
+            current_track: currentTrack,
+            is_playing: isPlaying,
+            queue,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('code', partyCode)
+      } catch (e) {
+        console.error('Error syncing to room:', e)
+      }
+    }
+    
+    syncToRoom()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack?.id, isPlaying])
 

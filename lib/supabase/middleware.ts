@@ -52,8 +52,12 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // If user is logged in and trying to access auth pages, redirect to app
+  // If user is logged in and trying to access auth pages (except confirm), redirect to app
   if (user && request.nextUrl.pathname.startsWith('/auth')) {
+    // Allow access to confirm page even if logged in
+    if (request.nextUrl.pathname === '/auth/confirm') {
+      return supabaseResponse
+    }
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)
