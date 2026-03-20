@@ -1,3 +1,4 @@
+import { MusicDataProvider } from '@/components/music-data-provider'
 import type { Metadata, Viewport } from 'next'
 import { Analytics } from '@vercel/analytics/next'
 import { ThemeProvider } from '@/components/theme-provider'
@@ -36,7 +37,9 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         <ThemeProvider>
-          {children}
+          <MusicDataProvider>
+            {children}
+          </MusicDataProvider>
         </ThemeProvider>
         <Analytics />
       </body>
