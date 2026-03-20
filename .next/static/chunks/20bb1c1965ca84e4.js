@@ -1,0 +1,1 @@
+(globalThis.TURBOPACK||(globalThis.TURBOPACK=[])).push(["object"==typeof document?document.currentScript:void 0,31713,t=>{"use strict";t.i(87433),t.i(44440);t.i(91032);let o=Error("Cannot find module '@/utils/supabase/client'");throw o.code="MODULE_NOT_FOUND",o}]);

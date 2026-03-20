@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 import { Track } from '@/types/music'
-import { createClient } from '@/utils/supabase/client'
+import { createClient } from '@/lib/supabase/client'
 
 const supabase = createClient()
 
