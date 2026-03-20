@@ -15,6 +15,7 @@ import {
 import { Home, Search, Heart, User, LogOut, Loader2, PartyPopper } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { User as SupabaseUser } from "@supabase/supabase-js"
+import { useMusicPlayer } from '@/hooks/use-music-player'
 
 type Tab = 'home' | 'search' | 'library' | 'liked' | 'recent' | 'playlist' | 'party'
 
@@ -35,6 +36,7 @@ export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
   const [signingOut, setSigningOut] = useState(false)
   const router = useRouter()
   const supabase = createClient()
+  const { party } = useMusicPlayer()
 
   useEffect(() => {
     const getUser = async () => {
@@ -79,20 +81,25 @@ export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
         {navItems.map((item) => {
           const Icon = item.icon
           const isActive = activeTab === item.id
+          const isPartyActive = item.id === 'party' && party.partyCode
           return (
             <Button
               key={item.id}
               variant="ghost"
               className={cn(
-                "flex-1 h-full flex-col gap-0.5 rounded-none py-2",
-                isActive && "text-primary"
+                "flex-1 h-full flex-col gap-0.5 rounded-none py-2 relative",
+                isActive && "text-primary",
+                isPartyActive && !isActive && "text-purple-400"
               )}
               onClick={() => onTabChange(item.id)}
             >
-              <Icon className={cn("w-5 h-5", isActive ? "text-primary" : "text-muted-foreground")} />
-              <span className={cn("text-[10px]", isActive ? "text-primary" : "text-muted-foreground")}>
+              <Icon className={cn("w-5 h-5", isActive ? "text-primary" : isPartyActive ? "text-purple-400" : "text-muted-foreground")} />
+              <span className={cn("text-[10px]", isActive ? "text-primary" : isPartyActive ? "text-purple-400" : "text-muted-foreground")}>
                 {item.label}
               </span>
+              {isPartyActive && (
+                <span className="absolute top-1.5 right-1/4 w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
+              )}
             </Button>
           )
         })}

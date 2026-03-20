@@ -36,7 +36,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeTab, onTabChange, selectedPlaylistId, onPlaylistSelect }: SidebarProps) {
-  const { playlists, likedSongs, recentlyPlayed, createPlaylist } = useMusicPlayer()
+  const { playlists, likedSongs, recentlyPlayed, createPlaylist, party } = useMusicPlayer()
   const [newPlaylistName, setNewPlaylistName] = useState('')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
@@ -92,13 +92,17 @@ export function Sidebar({ activeTab, onTabChange, selectedPlaylistId, onPlaylist
         <Button
           variant="ghost"
           className={cn(
-            "w-full justify-start gap-4 h-12 px-4 text-sidebar-foreground hover:text-sidebar-foreground",
-            activeTab === 'party' && "bg-sidebar-accent text-sidebar-primary"
+            "w-full justify-start gap-4 h-12 px-4 text-sidebar-foreground hover:text-sidebar-foreground relative",
+            activeTab === 'party' && "bg-sidebar-accent text-sidebar-primary",
+            party.partyCode && "bg-purple-500/10 border border-purple-500/30"
           )}
           onClick={() => onTabChange('party')}
         >
-          <PartyPopper className="w-5 h-5" />
+          <PartyPopper className={cn("w-5 h-5", party.partyCode && "text-purple-400")} />
           <span className="font-medium">Parti Odası</span>
+          {party.partyCode && (
+            <span className="absolute right-3 w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+          )}
         </Button>
       </nav>
 

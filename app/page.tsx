@@ -8,6 +8,9 @@ import { HomeView } from '@/components/music/home-view'
 import { LibraryView } from '@/components/music/library-view'
 import { MobileNav } from '@/components/music/mobile-nav'
 import { PartyRoomView } from '@/components/music/party-room'
+import { useMusicPlayer } from '@/hooks/use-music-player'
+import { Badge } from '@/components/ui/badge'
+import { PartyPopper } from 'lucide-react'
 
 type Tab = 'home' | 'search' | 'library' | 'liked' | 'recent' | 'playlist' | 'party'
 
@@ -15,6 +18,7 @@ export default function MusicApp() {
   const [activeTab, setActiveTab] = useState<Tab>('home')
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>()
   const [searchQuery, setSearchQuery] = useState('')
+  const { party } = useMusicPlayer()
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
@@ -36,7 +40,7 @@ export default function MusicApp() {
       case 'library':
         return <LibraryView tab="liked" />
       case 'party':
-        return <PartyRoomView />
+        return null // PartyRoomView is always rendered, just hidden
       default:
         return <HomeView onSearch={handleSearch} />
     }
@@ -56,8 +60,25 @@ export default function MusicApp() {
         </div>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-hidden min-w-0">
-          {renderContent()}
+        <main className="flex-1 overflow-hidden min-w-0 relative">
+          {/* PartyRoomView her zaman renderlanir ama sadece party tabinda gorunur - boylece state korunur */}
+          <div className={activeTab === 'party' ? 'h-full' : 'hidden'}>
+            <PartyRoomView />
+          </div>
+          {activeTab !== 'party' && renderContent()}
+          
+          {/* Parti aktifken diger sayfalarda parti gostergesi */}
+          {party.partyCode && activeTab !== 'party' && (
+            <button
+              onClick={() => setActiveTab('party')}
+              className="absolute top-4 right-4 z-10"
+            >
+              <Badge className="bg-purple-600 hover:bg-purple-700 text-white gap-1 cursor-pointer animate-pulse">
+                <PartyPopper className="w-3 h-3" />
+                Parti Aktif
+              </Badge>
+            </button>
+          )}
         </main>
       </div>
 

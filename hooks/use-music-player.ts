@@ -11,6 +11,13 @@ async function getUserId(): Promise<string | null> {
   return data.user?.id ?? null
 }
 
+// Parti odası için interface
+interface PartyState {
+  partyCode: string | null
+  isHost: boolean
+  hostId: string | null
+}
+
 interface MusicPlayerState {
   currentTrack: Track | null
   isPlaying: boolean
@@ -23,6 +30,9 @@ interface MusicPlayerState {
   recentlyPlayed: Track[]
   playlists: { id: string; name: string; tracks: Track[] }[]
   isLoaded: boolean
+  
+  // Parti durumu
+  party: PartyState
 
   loadUserData: () => Promise<void>
   setCurrentTrack: (track: Track) => void
@@ -41,6 +51,10 @@ interface MusicPlayerState {
   createPlaylist: (name: string) => void
   addToPlaylist: (playlistId: string, track: Track) => void
   removeFromPlaylist: (playlistId: string, trackId: string) => void
+  
+  // Parti fonksiyonları
+  setParty: (party: PartyState) => void
+  leaveParty: () => void
 }
 
 export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
@@ -55,6 +69,13 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
   recentlyPlayed: [],
   playlists: [],
   isLoaded: false,
+  
+  // Parti durumu
+  party: {
+    partyCode: null,
+    isHost: false,
+    hostId: null,
+  },
 
   loadUserData: async () => {
     const userId = await getUserId()
@@ -184,4 +205,8 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
     set({ playlists: playlists.map((p) => p.id === playlistId ? { ...p, tracks: newTracks } : p) })
     await supabase.from('playlists').update({ tracks: newTracks }).eq('id', playlistId)
   },
+
+  // Parti fonksiyonları
+  setParty: (party) => set({ party }),
+  leaveParty: () => set({ party: { partyCode: null, isHost: false, hostId: null } }),
 }))

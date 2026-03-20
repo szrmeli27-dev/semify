@@ -45,26 +45,35 @@ function formatTime(ts: number) {
 
 const supabase = createClient()
 
+// Channel'i modül seviyesinde tutarak sayfa değiştiğinde korunmasını sağla
+let globalChannel: RealtimeChannel | null = null
+let globalLastTrackId: string | null = null
+
 export function PartyRoomView() {
-  const { currentTrack, isPlaying, queue, playTrack, togglePlay, nextTrack, previousTrack } = useMusicPlayer()
+  const { 
+    currentTrack, isPlaying, queue, progress,
+    playTrack, togglePlay, nextTrack, previousTrack,
+    party, setParty, leaveParty
+  } = useMusicPlayer()
 
   const [myId,          setMyId]          = useState<string>('')
   const [myName,        setMyName]        = useState('Kullanici')
   const [nameInput,     setNameInput]     = useState('')
   const [showNameInput, setShowNameInput] = useState(false)
-  const [partyCode,     setPartyCode]     = useState('')
+  const [partyCode,     setPartyCode]     = useState(party.partyCode || '')
   const [joinCode,      setJoinCode]      = useState('')
   const [room,          setRoom]          = useState<PartyRoomData | null>(null)
   const [copied,        setCopied]        = useState(false)
   const [error,         setError]         = useState('')
   const [loading,       setLoading]       = useState(false)
 
-  const channelRef     = useRef<RealtimeChannel | null>(null)
-  const lastTrackIdRef = useRef<string | null>(null)
-  const isHostRef      = useRef(false)
+  const channelRef     = useRef<RealtimeChannel | null>(globalChannel)
+  const lastTrackIdRef = useRef<string | null>(globalLastTrackId)
+  const isHostRef      = useRef(party.isHost)
 
+  // Sayfa acildiginda parti durumunu kontrol et ve yeniden baglan
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (data.user) {
         setMyId(data.user.id)
         const name =
@@ -72,8 +81,55 @@ export function PartyRoomView() {
           data.user.email?.split('@')[0] ||
           'Kullanici'
         setMyName(name)
+        
+        // Eger global state'te parti varsa yeniden baglan
+        if (party.partyCode && !room) {
+          const { data: roomData } = await supabase
+            .from('party_rooms')
+            .select('*')
+            .eq('code', party.partyCode)
+            .single()
+          
+          if (roomData) {
+            const { data: membersData } = await supabase
+              .from('party_members')
+              .select('user_id, display_name, joined_at')
+              .eq('room_code', party.partyCode)
+              .order('joined_at', { ascending: true })
+            
+            const members: PartyMember[] = (membersData ?? []).map((m: any) => ({
+              id: m.user_id,
+              name: m.display_name,
+              joinedAt: new Date(m.joined_at).getTime(),
+              isHost: m.user_id === roomData.host_id,
+            }))
+            
+            const reconnectedRoom: PartyRoomData = {
+              code: roomData.code,
+              hostId: roomData.host_id,
+              members,
+              currentTrack: roomData.current_track,
+              isPlaying: roomData.is_playing,
+              queue: roomData.queue ?? [],
+              updatedAt: new Date(roomData.updated_at).getTime(),
+            }
+            
+            setPartyCode(party.partyCode)
+            setRoom(reconnectedRoom)
+            isHostRef.current = party.isHost
+            
+            // Eger channel yoksa yeniden subscribe ol
+            if (!globalChannel) {
+              subscribeToRoom(party.partyCode, roomData.host_id)
+            }
+          } else {
+            // Oda artik yok, parti durumunu temizle
+            leaveParty()
+          }
+        }
       }
     })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const isHost = room?.hostId === myId
@@ -109,6 +165,7 @@ export function PartyRoomView() {
             if (!isHostRef.current && r.current_track) {
               if (r.current_track.id !== lastTrackIdRef.current) {
                 lastTrackIdRef.current = r.current_track.id
+                globalLastTrackId = r.current_track.id
                 // Use setTimeout to ensure state update completes first
                 setTimeout(() => {
                   try {
@@ -149,12 +206,14 @@ export function PartyRoomView() {
         .subscribe()
 
       channelRef.current = channel
+      globalChannel = channel
     },
     [playTrack]
   )
 
+  // Host ise sarki degisikligi ve play/pause durumunu senkronize et
   useEffect(() => {
-    if (!isHost || !room || !partyCode) return
+    if (!isHostRef.current || !partyCode) return
     
     const syncToRoom = async () => {
       try {
@@ -174,11 +233,10 @@ export function PartyRoomView() {
     
     syncToRoom()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack?.id, isPlaying])
+  }, [currentTrack?.id, isPlaying, partyCode])
 
-  useEffect(() => {
-    return () => { if (channelRef.current) supabase.removeChannel(channelRef.current) }
-  }, [])
+  // Sayfa degistiginde channel'i kapatma, sadece component tamamen unmount oldugunda temizle
+  // Bu artik gerekli degil cunku global channel kullaniyoruz
 
   const createRoom = async () => {
     if (!myId) return
@@ -217,6 +275,8 @@ export function PartyRoomView() {
     setRoom(newRoom)
     setError('')
     subscribeToRoom(code, myId)
+    // Global state'i guncelle
+    setParty({ partyCode: code, isHost: true, hostId: myId })
     setLoading(false)
   }
 
@@ -273,9 +333,12 @@ export function PartyRoomView() {
     setJoinCode('')
     setError('')
     subscribeToRoom(code, roomData.host_id)
+    // Global state'i guncelle
+    setParty({ partyCode: code, isHost: false, hostId: roomData.host_id })
 
     if (roomData.current_track) {
       lastTrackIdRef.current = roomData.current_track.id
+      globalLastTrackId = roomData.current_track.id
       playTrack(roomData.current_track, roomData.queue ?? [])
     }
     setLoading(false)
@@ -284,6 +347,8 @@ export function PartyRoomView() {
   const leaveRoom = async () => {
     if (channelRef.current) supabase.removeChannel(channelRef.current)
     channelRef.current = null
+    globalChannel = null
+    globalLastTrackId = null
     if (partyCode && myId) {
       await supabase.from('party_members').delete().eq('room_code', partyCode).eq('user_id', myId)
       if (isHost) await supabase.from('party_rooms').delete().eq('code', partyCode)
@@ -291,6 +356,8 @@ export function PartyRoomView() {
     setRoom(null)
     setPartyCode('')
     isHostRef.current = false
+    // Global state'i temizle
+    leaveParty()
   }
 
   const copyCode = () => {
