@@ -78,36 +78,59 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
   },
 
   loadUserData: async () => {
+    const { isLoaded } = get()
+    // Zaten yuklenmisse tekrar yukleme (farkli cihazdan girildiginde verilerin silinmesini onler)
+    if (isLoaded) return
+    
     const userId = await getUserId()
-    if (!userId) return
+    if (!userId) {
+      set({ isLoaded: true })
+      return
+    }
 
-    const [likedRes, recentRes, playlistRes] = await Promise.all([
-      supabase
-        .from('liked_songs')
-        .select('track_data')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('recently_played')
-        .select('track_data')
-        .eq('user_id', userId)
-        .order('played_at', { ascending: false })
-        .limit(20),
-      supabase
-        .from('playlists')
-        .select('id, name, tracks')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: true }),
-    ])
+    try {
+      const [likedRes, recentRes, playlistRes] = await Promise.all([
+        supabase
+          .from('liked_songs')
+          .select('track_data')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('recently_played')
+          .select('track_data')
+          .eq('user_id', userId)
+          .order('played_at', { ascending: false })
+          .limit(20),
+        supabase
+          .from('playlists')
+          .select('id, name, tracks')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: true }),
+      ])
 
-    set({
-      likedSongs:     (likedRes.data    ?? []).map((r) => r.track_data as Track),
-      recentlyPlayed: (recentRes.data   ?? []).map((r) => r.track_data as Track),
-      playlists:      (playlistRes.data ?? []).map((r) => ({
-        id: r.id, name: r.name, tracks: r.tracks as Track[],
-      })),
-      isLoaded: true,
-    })
+      // Sadece basarili sorgulardan gelen verileri kullan
+      const newLikedSongs = likedRes.data && !likedRes.error
+        ? likedRes.data.map((r) => r.track_data as Track)
+        : []
+      const newRecentlyPlayed = recentRes.data && !recentRes.error
+        ? recentRes.data.map((r) => r.track_data as Track)
+        : []
+      const newPlaylists = playlistRes.data && !playlistRes.error
+        ? playlistRes.data.map((r) => ({
+            id: r.id, name: r.name, tracks: (r.tracks ?? []) as Track[],
+          }))
+        : []
+
+      set({
+        likedSongs: newLikedSongs,
+        recentlyPlayed: newRecentlyPlayed,
+        playlists: newPlaylists,
+        isLoaded: true,
+      })
+    } catch (error) {
+      console.error('Error loading user data:', error)
+      set({ isLoaded: true })
+    }
   },
 
   setCurrentTrack: (track) => set({ currentTrack: track }),

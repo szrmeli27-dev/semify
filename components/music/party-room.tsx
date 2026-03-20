@@ -283,17 +283,26 @@ export function PartyRoomView() {
   const joinRoom = async () => {
     const code = joinCode.trim().toUpperCase()
     if (code.length < 4) { setError('Gecerli bir oda kodu girin'); return }
-    if (!myId) return
+    if (!myId) { setError('Lutfen giris yapin'); return }
     setLoading(true)
+    setError('')
 
+    // Oncelikle odanin var olup olmadigini kontrol et
     const { data: roomData, error: roomErr } = await supabase
       .from('party_rooms')
       .select('*')
       .eq('code', code)
-      .single()
+      .maybeSingle()
 
-    if (roomErr || !roomData) {
-      setError('Oda bulunamadi. Kodu kontrol et.')
+    if (roomErr) {
+      console.error('Party room query error:', roomErr)
+      setError('Baglanti hatasi. Tekrar deneyin.')
+      setLoading(false)
+      return
+    }
+    
+    if (!roomData) {
+      setError('Oda bulunamadi. Kodu kontrol edin.')
       setLoading(false)
       return
     }
@@ -417,7 +426,12 @@ export function PartyRoomView() {
                 <h3 className="font-bold text-foreground mb-1">Odaya Katıl</h3>
                 <p className="text-sm text-muted-foreground mb-4">Oda kodunu girerek katıl</p>
                 <div className="space-y-2">
-                  <Input value={joinCode} onChange={(e) => { setJoinCode(e.target.value.toUpperCase()); setError('') }}
+                  <Input value={joinCode} onChange={(e) => { 
+                    // Sadece alfanumerik karakterlere izin ver ve buyuk harfe cevir
+                    const cleaned = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+                    setJoinCode(cleaned)
+                    setError('') 
+                  }}
                     placeholder="ODA KODU" maxLength={6}
                     className="uppercase font-mono tracking-widest text-center text-lg font-bold"
                     onKeyDown={(e) => e.key === 'Enter' && joinRoom()} />
