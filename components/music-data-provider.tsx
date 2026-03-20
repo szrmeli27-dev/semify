@@ -18,10 +18,10 @@ export function MusicDataProvider({ children }: { children: React.ReactNode }) {
       }
       if (event === 'SIGNED_OUT') {
         useMusicPlayer.setState({
-          likedSongs:     [],
+          likedSongs: [],
           recentlyPlayed: [],
-          playlists:      [],
-          isLoaded:       false,
+          playlists: [],
+          isLoaded: false,
         })
       }
     })
