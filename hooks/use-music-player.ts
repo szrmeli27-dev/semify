@@ -28,6 +28,7 @@ interface MusicPlayerState {
   setCurrentTrack: (track: Track) => void
   playTrack: (track: Track, queue?: Track[]) => void
   togglePlay: () => void
+  setIsPlaying: (isPlaying: boolean) => void
   setVolume: (volume: number) => void
   setProgress: (progress: number) => void
   setDuration: (duration: number) => void

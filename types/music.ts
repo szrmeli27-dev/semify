@@ -4,6 +4,9 @@ export interface Track {
   artist: string
   thumbnail: string
   duration: string
+  streamUrl?: string
+  permalinkUrl?: string
+  soundcloudId?: number
 }
 
 export interface Playlist {
