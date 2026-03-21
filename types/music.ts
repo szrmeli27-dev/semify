@@ -4,8 +4,13 @@ export interface Track {
   artist: string
   thumbnail: string
   duration: string
+  durationSeconds?: number
+  streamUrl?: string
+  downloadUrl?: string
   permalink?: string
-  source?: 'soundcloud'
+  license?: string
+  album?: string
+  source?: 'jamendo'
 }
 
 export interface Playlist {
@@ -23,4 +28,10 @@ export interface PlayerState {
   duration: number
   queue: Track[]
   currentIndex: number
+}
+
+export interface JamendoAttribution {
+  text: string
+  url: string
+  license: string
 }

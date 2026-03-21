@@ -73,7 +73,7 @@ export function SearchView({ initialQuery = '' }: SearchViewProps) {
     try {
       const response = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`)
       const data = await response.json()
-      setResults(data.results || [])
+      setResults(data.tracks || [])
     } catch (error) {
       console.error('Search error:', error)
       setResults([])

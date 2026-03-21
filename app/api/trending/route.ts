@@ -35,30 +35,34 @@ function formatDuration(seconds: number): string {
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
-  const query = searchParams.get('q')
+  const genre = searchParams.get('genre')
   const limit = searchParams.get('limit') || '20'
-
-  if (!query) {
-    return NextResponse.json({ error: 'Query parameter is required' }, { status: 400 })
-  }
 
   try {
     const params = new URLSearchParams({
       client_id: JAMENDO_CLIENT_ID,
       format: 'json',
       limit: limit,
-      search: query,
       include: 'musicinfo+licenses',
       audioformat: 'mp32',
       imagesize: '300',
-      boost: 'popularity_month',
+      order: 'popularity_week',
+      groupby: 'artist_id',
     })
+
+    // Add genre filter if provided
+    if (genre) {
+      params.append('fuzzytags', genre)
+    }
+
+    // Get featured tracks for better quality
+    params.append('featured', '1')
 
     const response = await fetch(`${JAMENDO_API_BASE}/tracks/?${params.toString()}`, {
       headers: {
         'Accept': 'application/json',
       },
-      next: { revalidate: 300 },
+      next: { revalidate: 600 }, // Cache for 10 minutes
     })
 
     if (!response.ok) {
@@ -96,9 +100,9 @@ export async function GET(request: NextRequest) {
       }
     })
   } catch (error) {
-    console.error('Search error:', error)
+    console.error('Trending error:', error)
     return NextResponse.json(
-      { error: 'Failed to search tracks', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to fetch trending tracks', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }

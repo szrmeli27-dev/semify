@@ -27,47 +27,24 @@ export function Player() {
   const previousVolume = useRef(volume)
   const currentTrackIdRef = useRef<string | null>(null)
 
-  // Fetch stream URL when track changes
-  const loadStream = useCallback(async (trackId: string) => {
-    if (currentTrackIdRef.current === trackId && audioRef.current?.src) {
-      // Same track, just play/pause
+  // Load stream when track changes - Jamendo provides direct stream URLs
+  useEffect(() => {
+    if (!currentTrack?.id || !currentTrack?.streamUrl) return
+    
+    if (currentTrackIdRef.current === currentTrack.id && audioRef.current?.src) {
       return
     }
 
     setIsLoading(true)
     setStreamError(null)
-    currentTrackIdRef.current = trackId
+    currentTrackIdRef.current = currentTrack.id
 
-    try {
-      const response = await fetch(`/api/soundcloud/stream?id=${trackId}`)
-      const data = await response.json()
-
-      if (!response.ok || !data.streamable) {
-        setStreamError(data.error || 'Bu parca calinamiyor')
-        setIsLoading(false)
-        setIsPlaying(false)
-        return
-      }
-
-      if (audioRef.current) {
-        audioRef.current.src = data.streamUrl
-        audioRef.current.load()
-      }
-    } catch (error) {
-      console.error('Stream load error:', error)
-      setStreamError('Stream yuklenemedi')
-      setIsPlaying(false)
-    } finally {
-      setIsLoading(false)
+    if (audioRef.current) {
+      audioRef.current.src = currentTrack.streamUrl
+      audioRef.current.load()
     }
-  }, [setIsPlaying])
-
-  // Load stream when track changes
-  useEffect(() => {
-    if (currentTrack?.id) {
-      loadStream(currentTrack.id)
-    }
-  }, [currentTrack?.id, loadStream])
+    setIsLoading(false)
+  }, [currentTrack?.id, currentTrack?.streamUrl])
 
   // Play/pause based on isPlaying state
   useEffect(() => {
@@ -237,7 +214,7 @@ export function Player() {
                 <Slider value={[isMuted ? 0 : volume]} max={1} step={0.01} onValueChange={handleVolumeChange} className="flex-1" />
               </div>
 
-              {/* SoundCloud Attribution */}
+              {/* Jamendo Attribution */}
               {currentTrack.permalink && (
                 <a 
                   href={currentTrack.permalink} 
@@ -245,7 +222,7 @@ export function Player() {
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-2 mt-6 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  <span>SoundCloud&apos;da dinle</span>
+                  <span>Jamendo&apos;da dinle - Creative Commons</span>
                   <ExternalLink className="w-3 h-3" />
                 </a>
               )}
@@ -323,6 +300,7 @@ export function Player() {
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                    title="Jamendo'da dinle"
                   >
                     <ExternalLink className="w-3 h-3" />
                   </a>
@@ -376,6 +354,18 @@ export function Player() {
             Sarki secin ve muzik keyfini cikarin
           </div>
         )}
+
+        {/* Jamendo Attribution Footer */}
+        <div className="hidden md:flex items-center justify-center py-1 border-t border-border/50 bg-muted/30">
+          <a 
+            href="https://www.jamendo.com" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Music powered by Jamendo - Creative Commons Licensed
+          </a>
+        </div>
       </div>
     </>
   )
