@@ -1,121 +1,66 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// Invidious instances to try
-const INVIDIOUS_INSTANCES = [
-  'https://inv.nadeko.net',
-  'https://invidious.nerdvpn.de',
-  'https://invidious.protokolla.fi',
-  'https://iv.nboeck.de',
-]
-
-async function searchWithInvidious(query: string) {
-  for (const instance of INVIDIOUS_INSTANCES) {
-    try {
-      const response = await fetch(
-        `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`,
-        { 
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(5000)
-        }
-      )
-      
-      if (response.ok) {
-        const data = await response.json()
-        return data.map((video: {
-          videoId: string
-          title: string
-          author: string
-          lengthSeconds: number
-          videoThumbnails?: { url: string }[]
-        }) => ({
-          id: video.videoId,
-          title: video.title,
-          artist: video.author,
-          thumbnail: `https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg`,
-          duration: formatDuration(video.lengthSeconds)
-        })).slice(0, 20)
-      }
-    } catch {
-      continue
-    }
+interface SoundCloudTrack {
+  id: number
+  title: string
+  user: {
+    username: string
+    avatar_url: string
   }
-  return null
+  artwork_url: string | null
+  duration: number
+  streamable: boolean
+  stream_url?: string
+  permalink_url: string
 }
 
-async function searchWithYouTube(query: string) {
-  try {
-    const response = await fetch(
-      `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%3D%3D`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-        signal: AbortSignal.timeout(10000)
-      }
-    )
+async function getAccessToken(): Promise<string | null> {
+  const clientId = process.env.SOUNDCLOUD_CLIENT_ID
+  const clientSecret = process.env.SOUNDCLOUD_CLIENT_SECRET
 
-    const html = await response.text()
-    
-    // Extract ytInitialData JSON
-    const dataMatch = html.match(/var ytInitialData = (.+?);<\/script>/)
-    if (dataMatch) {
-      try {
-        const data = JSON.parse(dataMatch[1])
-        const contents = data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || []
-        
-        return contents
-          .filter((item: { videoRenderer?: unknown }) => item.videoRenderer)
-          .map((item: { 
-            videoRenderer: { 
-              videoId: string
-              title: { runs: { text: string }[] }
-              ownerText?: { runs: { text: string }[] }
-              lengthText?: { simpleText: string }
-            } 
-          }) => {
-            const video = item.videoRenderer
-            return {
-              id: video.videoId,
-              title: video.title?.runs?.[0]?.text || 'Unknown',
-              artist: video.ownerText?.runs?.[0]?.text || 'Unknown Artist',
-              thumbnail: `https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg`,
-              duration: video.lengthText?.simpleText || '3:30'
-            }
-          })
-          .slice(0, 20)
-      } catch {
-        // JSON parse failed, fall through to regex
-      }
+  if (!clientId || !clientSecret) {
+    return null
+  }
+
+  try {
+    const response = await fetch('https://api.soundcloud.com/oauth2/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+    })
+
+    if (!response.ok) {
+      console.error('Failed to get SoundCloud token:', await response.text())
+      return null
     }
-    
-    // Fallback: Simple regex extraction
-    const videoIds: string[] = []
-    const regex = /"videoId":"(\w{11})"/g
-    let match
-    
-    while ((match = regex.exec(html)) !== null) {
-      if (!videoIds.includes(match[1]) && videoIds.length < 20) {
-        videoIds.push(match[1])
-      }
-    }
-    
-    return videoIds.map((id) => ({
-      id,
-      title: 'Music Video',
-      artist: 'YouTube',
-      thumbnail: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
-      duration: '3:30'
-    }))
-  } catch {
+
+    const data = await response.json()
+    return data.access_token
+  } catch (error) {
+    console.error('SoundCloud token error:', error)
     return null
   }
 }
 
-function formatDuration(seconds: number): string {
-  const mins = Math.floor(seconds / 60)
-  const secs = seconds % 60
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000)
+  const mins = Math.floor(totalSeconds / 60)
+  const secs = totalSeconds % 60
   return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+function getArtworkUrl(url: string | null): string {
+  if (!url) {
+    return '/placeholder-track.png'
+  }
+  // Get larger artwork (500x500 instead of default 100x100)
+  return url.replace('-large', '-t500x500')
 }
 
 export async function GET(request: NextRequest) {
@@ -126,16 +71,48 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Query parameter is required' }, { status: 400 })
   }
 
+  const accessToken = await getAccessToken()
+
+  if (!accessToken) {
+    return NextResponse.json(
+      { error: 'SoundCloud API not configured. Please add SOUNDCLOUD_CLIENT_ID and SOUNDCLOUD_CLIENT_SECRET environment variables.' },
+      { status: 500 }
+    )
+  }
+
   try {
-    // Try Invidious first (more reliable API)
-    let results = await searchWithInvidious(query + ' music')
-    
-    // Fallback to YouTube scraping
-    if (!results || results.length === 0) {
-      results = await searchWithYouTube(query + ' music')
+    const response = await fetch(
+      `https://api.soundcloud.com/tracks?q=${encodeURIComponent(query)}&limit=30&linked_partitioning=1`,
+      {
+        headers: {
+          Authorization: `OAuth ${accessToken}`,
+        },
+        signal: AbortSignal.timeout(10000),
+      }
+    )
+
+    if (!response.ok) {
+      console.error('SoundCloud search error:', await response.text())
+      return NextResponse.json({ error: 'Search failed', results: [] }, { status: 500 })
     }
 
-    return NextResponse.json({ results: results || [] })
+    const data = await response.json()
+    const tracks: SoundCloudTrack[] = data.collection || []
+
+    // Filter to only streamable tracks and format results
+    const results = tracks
+      .filter((track) => track.streamable)
+      .map((track) => ({
+        id: track.id.toString(),
+        title: track.title,
+        artist: track.user.username,
+        thumbnail: getArtworkUrl(track.artwork_url || track.user.avatar_url),
+        duration: formatDuration(track.duration),
+        permalink: track.permalink_url,
+        source: 'soundcloud' as const,
+      }))
+
+    return NextResponse.json({ results })
   } catch (error) {
     console.error('Search error:', error)
     return NextResponse.json({ error: 'Search failed', results: [] }, { status: 500 })

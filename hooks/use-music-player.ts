@@ -28,6 +28,7 @@ interface MusicPlayerState {
   setCurrentTrack: (track: Track) => void
   playTrack: (track: Track, queue?: Track[]) => void
   togglePlay: () => void
+  setIsPlaying: (isPlaying: boolean) => void
   setVolume: (volume: number) => void
   setProgress: (progress: number) => void
   setDuration: (duration: number) => void
@@ -102,6 +103,7 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
   },
 
   togglePlay: () => set((s) => ({ isPlaying: !s.isPlaying })),
+  setIsPlaying: (isPlaying) => set({ isPlaying }),
   setVolume:   (volume)   => set({ volume }),
   setProgress: (progress) => set({ progress }),
   setDuration: (duration) => set({ duration }),

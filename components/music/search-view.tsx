@@ -28,14 +28,14 @@ import {
 import { cn } from '@/lib/utils'
 
 const POPULAR_SEARCHES = [
-  { name: 'Pop Hits', color: 'from-pink-500 to-rose-600' },
-  { name: 'Rock Classics', color: 'from-orange-500 to-red-600' },
-  { name: 'Hip Hop', color: 'from-yellow-500 to-amber-600' },
-  { name: 'Jazz', color: 'from-blue-500 to-indigo-600' },
+  { name: 'Indie Music', color: 'from-emerald-500 to-green-600' },
+  { name: 'Lo-Fi Beats', color: 'from-slate-500 to-slate-700' },
   { name: 'Electronic', color: 'from-cyan-500 to-blue-600' },
-  { name: 'Turkish Music', color: 'from-red-500 to-rose-600' },
-  { name: 'Chill Vibes', color: 'from-green-500 to-emerald-600' },
-  { name: 'Workout', color: 'from-purple-500 to-violet-600' },
+  { name: 'Hip Hop', color: 'from-orange-500 to-amber-600' },
+  { name: 'Jazz', color: 'from-blue-500 to-indigo-600' },
+  { name: 'Acoustic', color: 'from-amber-500 to-yellow-600' },
+  { name: 'Ambient', color: 'from-teal-500 to-emerald-600' },
+  { name: 'World Music', color: 'from-pink-500 to-rose-600' },
 ]
 
 interface SearchViewProps {

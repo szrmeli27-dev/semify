@@ -5,8 +5,8 @@ import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Semify - Müzik Dinleme Uygulaması',
-  description: 'YouTube Music tabanlı ücretsiz müzik dinleme uygulaması',
+  title: 'Semify - Muzik Dinleme Uygulamasi',
+  description: 'SoundCloud entegrasyonlu muzik dinleme uygulamasi. Bagimsiz sanatcilarin muziklerini kesfet ve dinle.',
   generator: 'v0.app',
   icons: {
     icon: [

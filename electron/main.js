@@ -69,7 +69,7 @@ function createTray() {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Melodify Ac',
+      label: 'Semify Ac',
       click: () => {
         if (mainWindow) {
           mainWindow.show()
@@ -97,7 +97,7 @@ function createTray() {
     }
   ])
 
-  tray.setToolTip('Melodify')
+  tray.setToolTip('Semify')
   tray.setContextMenu(contextMenu)
 
   tray.on('click', () => {
@@ -161,9 +161,9 @@ function createMenu() {
             const { dialog } = require('electron')
             dialog.showMessageBox(mainWindow, {
               type: 'info',
-              title: 'Melodify Hakkinda',
-              message: 'Melodify',
-              detail: 'Surum: 1.0.0\n\nYouTube tabanli muzik dinleme uygulamasi.\n\n2024 Melodify Team'
+              title: 'Semify Hakkinda',
+              message: 'Semify',
+              detail: 'Surum: 1.0.0\n\nSoundCloud entegrasyonlu muzik dinleme uygulamasi.\nBagimsiz sanatcilarin muziklerini kesfet.\n\n2024 Semify'
             })
           }
         }

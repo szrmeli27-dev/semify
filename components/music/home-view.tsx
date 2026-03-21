@@ -8,12 +8,12 @@ import { Play, Pause } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const QUICK_PICKS = [
-  { name: 'Türkçe Pop', query: 'turkish pop music' },
-  { name: 'Chill Mix', query: 'chill lofi music' },
-  { name: 'Workout', query: 'workout motivation music' },
-  { name: 'Rock Hits', query: 'rock hits music' },
-  { name: 'Jazz Vibes', query: 'jazz relaxing music' },
-  { name: 'EDM Party', query: 'edm party music' },
+  { name: 'Indie Kesfet', query: 'indie music new artists' },
+  { name: 'Lo-Fi Chill', query: 'lofi hip hop chill beats' },
+  { name: 'Electronic', query: 'electronic dance music' },
+  { name: 'Acoustic', query: 'acoustic covers indie' },
+  { name: 'Jazz Vibes', query: 'jazz instrumental relaxing' },
+  { name: 'Hip Hop', query: 'hip hop underground' },
 ]
 
 interface HomeViewProps {
@@ -146,19 +146,19 @@ export function HomeView({ onSearch }: HomeViewProps) {
 
           {/* Browse Section */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-foreground">Keşfet</h2>
+            <h2 className="text-xl font-bold mb-4 text-foreground">Kesfet</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {[
-                { name: 'Pop', color: 'from-pink-500 to-rose-600', query: 'pop music hits' },
-                { name: 'Hip Hop', color: 'from-orange-500 to-amber-600', query: 'hip hop music' },
-                { name: 'Rock', color: 'from-red-500 to-rose-700', query: 'rock music classics' },
-                { name: 'R&B', color: 'from-purple-500 to-violet-600', query: 'rnb music' },
-                { name: 'Jazz', color: 'from-blue-500 to-indigo-600', query: 'jazz music relaxing' },
-                { name: 'Electronic', color: 'from-cyan-500 to-blue-600', query: 'electronic dance music' },
-                { name: 'Classical', color: 'from-amber-500 to-yellow-600', query: 'classical music' },
-                { name: 'Türkçe', color: 'from-red-600 to-red-800', query: 'turkish music' },
-                { name: 'Indie', color: 'from-emerald-500 to-green-600', query: 'indie music' },
-                { name: 'Lo-Fi', color: 'from-slate-500 to-slate-700', query: 'lofi hip hop' },
+                { name: 'Indie', color: 'from-emerald-500 to-green-600', query: 'indie music new' },
+                { name: 'Electronic', color: 'from-cyan-500 to-blue-600', query: 'electronic music' },
+                { name: 'Hip Hop', color: 'from-orange-500 to-amber-600', query: 'hip hop beats' },
+                { name: 'Lo-Fi', color: 'from-slate-500 to-slate-700', query: 'lofi beats chill' },
+                { name: 'Jazz', color: 'from-blue-500 to-indigo-600', query: 'jazz instrumental' },
+                { name: 'Acoustic', color: 'from-amber-500 to-yellow-600', query: 'acoustic guitar' },
+                { name: 'Ambient', color: 'from-teal-500 to-emerald-600', query: 'ambient music' },
+                { name: 'Techno', color: 'from-red-500 to-rose-700', query: 'techno music' },
+                { name: 'Soul', color: 'from-pink-500 to-rose-600', query: 'soul music' },
+                { name: 'World', color: 'from-indigo-500 to-blue-600', query: 'world music' },
               ].map((genre) => (
                 <button
                   key={genre.name}
