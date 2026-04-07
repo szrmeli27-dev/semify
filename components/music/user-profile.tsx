@@ -86,20 +86,21 @@ export function UserProfile() {
     if (!user || !editDisplayName.trim()) return
     setSaving(true)
 
+    // Önce profili güncellemeyi dene, satır yoksa oluştur (upsert)
     const { error } = await supabase
       .from("profiles")
-      .update({ 
+      .upsert({ 
+        id: user.id,
         display_name: editDisplayName.trim(),
         updated_at: new Date().toISOString()
       })
-      .eq("id", user.id)
 
     if (!error) {
-      setProfile(prev => prev ? { ...prev, display_name: editDisplayName.trim() } : null)
+      setProfile(prev => prev ? { ...prev, display_name: editDisplayName.trim() } : { id: user.id, display_name: editDisplayName.trim(), avatar_url: null })
       setIsEditDialogOpen(false)
       router.refresh()
     } else {
-      console.error("İsim güncelleme hatası:", error.message)
+      alert("Hata: " + error.message)
     }
     setSaving(false)
   }
@@ -122,7 +123,7 @@ export function UserProfile() {
 
       if (uploadError) throw uploadError
 
-      // 2. Yüklenen fotoğrafın URL'ini al
+      // 2. Yüklenen fotoğrafın Public URL'ini al
       const { data: { publicUrl } } = supabase.storage
         .from('AVATARS')
         .getPublicUrl(filePath)
@@ -130,48 +131,31 @@ export function UserProfile() {
       // 3. URL'i veritabanındaki profile kaydet
       const { error: updateError } = await supabase
         .from("profiles")
-        .update({ 
+        .upsert({ 
+          id: user.id,
           avatar_url: publicUrl,
           updated_at: new Date().toISOString()
         })
-        .eq("id", user.id)
 
       if (updateError) throw updateError
 
-      setProfile(prev => prev ? { ...prev, avatar_url: publicUrl } : null)
+      setProfile(prev => prev ? { ...prev, avatar_url: publicUrl } : { id: user.id, display_name: editDisplayName, avatar_url: publicUrl })
       router.refresh()
 
     } catch (error: any) {
-      console.error("Fotoğraf yükleme hatası:", error.message)
-      alert("Hata: " + error.message)
+      console.error("Yükleme Hatası:", error.message)
+      alert("Yükleme başarısız: " + error.message)
     } finally {
       setUploadingPhoto(false)
     }
   }
 
-  if (loading) {
-    return (
-      <div className="p-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-muted animate-pulse" />
-          <div className="flex-1">
-            <div className="h-4 w-24 bg-muted rounded animate-pulse" />
-          </div>
-        </div>
-      </div>
-    )
-  }
+  if (loading) return <div className="p-4 animate-pulse">Yükleniyor...</div>
 
   if (!user) {
     return (
-      <div className="p-4">
-        <Button 
-          variant="outline" 
-          className="w-full"
-          onClick={() => router.push("/auth/login")}
-        >
-          Giriş Yap
-        </Button>
+      <div className="p-4 border-b border-sidebar-border">
+        <Button className="w-full" onClick={() => router.push("/auth/login")}>Giriş Yap</Button>
       </div>
     )
   }
@@ -183,20 +167,15 @@ export function UserProfile() {
     <div className="p-4 border-b border-sidebar-border">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button 
-            variant="ghost" 
-            className="w-full justify-start gap-3 h-auto py-2 px-2 hover:bg-sidebar-accent group"
-          >
+          <Button variant="ghost" className="w-full justify-start gap-3 h-auto py-2 px-2 hover:bg-sidebar-accent group">
             <div className="relative">
               <Avatar className="w-10 h-10 ring-2 ring-primary/20">
                 <AvatarImage src={profile?.avatar_url || undefined} alt={displayName} />
-                <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                  {initials}
-                </AvatarFallback>
+                <AvatarFallback className="bg-primary text-primary-foreground text-sm">{initials}</AvatarFallback>
               </Avatar>
               {uploadingPhoto && (
                 <div className="absolute inset-0 bg-background/80 rounded-full flex items-center justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
                 </div>
               )}
             </div>
@@ -204,62 +183,33 @@ export function UserProfile() {
               <p className="font-medium text-sm text-sidebar-foreground truncate">{displayName}</p>
               <p className="text-xs text-muted-foreground truncate">{user.email}</p>
             </div>
-            <ChevronDown className="w-4 h-4 text-muted-foreground group-hover:text-sidebar-foreground transition-colors" />
+            <ChevronDown className="w-4 h-4 text-muted-foreground group-hover:text-sidebar-foreground" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64" sideOffset={8}>
-          <div className="px-2 py-3 border-b border-border">
-            <div className="flex items-center gap-3">
-              <Avatar className="w-12 h-12">
-                <AvatarImage src={profile?.avatar_url || undefined} alt={displayName} />
-                <AvatarFallback className="bg-primary text-primary-foreground">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-foreground truncate">{displayName}</p>
-                <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-              </div>
+          <div className="px-2 py-3 border-b border-border flex items-center gap-3">
+            <Avatar className="w-12 h-12">
+              <AvatarImage src={profile?.avatar_url || undefined} />
+              <AvatarFallback className="bg-primary text-primary-foreground">{initials}</AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold truncate">{displayName}</p>
+              <p className="text-xs text-muted-foreground truncate">{user.email}</p>
             </div>
           </div>
-
           <div className="py-1">
-            <DropdownMenuItem 
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingPhoto}
-            >
+            <DropdownMenuItem onClick={() => fileInputRef.current?.click()} disabled={uploadingPhoto}>
               <Camera className="mr-2 h-4 w-4" />
               {uploadingPhoto ? "Yükleniyor..." : "Fotoğraf Değiştir"}
             </DropdownMenuItem>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handlePhotoUpload}
-              className="hidden"
-            />
-            
-            <DropdownMenuItem onClick={() => {
-              setEditDisplayName(profile?.display_name || "")
-              setIsEditDialogOpen(true)
-            }}>
-              <Edit3 className="mr-2 h-4 w-4" />
-              Adını Değiştir
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+            <DropdownMenuItem onClick={() => { setEditDisplayName(profile?.display_name || ""); setIsEditDialogOpen(true); }}>
+              <Edit3 className="mr-2 h-4 w-4" /> Ad Değiştir
             </DropdownMenuItem>
           </div>
-
           <DropdownMenuSeparator />
-          
-          <DropdownMenuItem 
-            onClick={handleSignOut}
-            disabled={signingOut}
-            className="text-destructive focus:text-destructive focus:bg-destructive/10"
-          >
-            {signingOut ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <LogOut className="mr-2 h-4 w-4" />
-            )}
+          <DropdownMenuItem onClick={handleSignOut} disabled={signingOut} className="text-destructive focus:bg-destructive/10">
+            {signingOut ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
             Çıkış Yap
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -272,13 +222,8 @@ export function UserProfile() {
           </DialogHeader>
           <div className="space-y-4 pt-4">
             <div className="space-y-2">
-              <Label htmlFor="displayName">Yeni Adınız</Label>
-              <Input
-                id="displayName"
-                value={editDisplayName}
-                onChange={(e) => setEditDisplayName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleUpdateDisplayName()}
-              />
+              <Label htmlFor="displayName">Yeni İsim</Label>
+              <Input id="displayName" value={editDisplayName} onChange={(e) => setEditDisplayName(e.target.value)} />
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>İptal</Button>
