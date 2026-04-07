@@ -62,36 +62,22 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
     if (!userId) return
 
     const [likedRes, recentRes, playlistRes] = await Promise.all([
-      supabase
-        .from('liked_songs')
-        .select('track_data')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('recently_played')
-        .select('track_data')
-        .eq('user_id', userId)
-        .order('played_at', { ascending: false })
-        .limit(20),
-      supabase
-        .from('playlists')
-        .select('id, name') // Veritabanında tracks sütunu olmadığı için sildik
-        .eq('user_id', userId)
-        .order('created_at', { ascending: true }),
+      supabase.from('liked_songs').select('track_data').eq('user_id', userId).order('created_at', { ascending: false }),
+      supabase.from('recently_played').select('track_data').eq('user_id', userId).order('played_at', { ascending: false }).limit(20),
+      supabase.from('playlists').select('id, name').eq('user_id', userId).order('created_at', { ascending: true }),
     ])
 
     set({
       likedSongs: (likedRes.data ?? []).map((r: any) => r.track_data as Track),
       recentlyPlayed: (recentRes.data ?? []).map((r: any) => r.track_data as Track),
       playlists: (playlistRes.data ?? []).map((r: any) => ({
-        id: r.id, name: r.name, tracks: [], // Uygulama içinde hata almamak için boş dizi
+        id: r.id, name: r.name, tracks: [], 
       })),
       isLoaded: true,
     })
   },
 
   setCurrentTrack: (track) => set({ currentTrack: track }),
-
   playTrack: (track, queue) => {
     get().addToRecentlyPlayed(track)
     if (queue) {
@@ -101,12 +87,10 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
       set({ currentTrack: track, isPlaying: true, progress: 0 })
     }
   },
-
   togglePlay: () => set((s) => ({ isPlaying: !s.isPlaying })),
   setVolume: (volume) => set({ volume }),
   setProgress: (progress) => set({ progress }),
   setDuration: (duration) => set({ duration }),
-
   nextTrack: () => {
     const { queue, currentIndex } = get()
     if (queue.length > 0 && currentIndex < queue.length - 1) {
@@ -116,7 +100,6 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
       set({ currentTrack: next, currentIndex: nextIndex, progress: 0 })
     }
   },
-
   previousTrack: () => {
     const { queue, currentIndex, progress } = get()
     if (progress > 3) { set({ progress: 0 }); return }
@@ -125,10 +108,8 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
       set({ currentTrack: queue[prevIndex], currentIndex: prevIndex, progress: 0 })
     }
   },
-
   addToQueue: (track) => set((s) => ({ queue: [...s.queue, track] })),
   clearQueue: () => set({ queue: [], currentIndex: 0 }),
-
   toggleLike: async (track) => {
     const userId = await getUserId()
     const { likedSongs } = get()
@@ -141,9 +122,7 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
       if (userId) await supabase.from('liked_songs').upsert({ user_id: userId, track_id: track.id, track_data: track })
     }
   },
-
   isLiked: (id) => get().likedSongs.some((t) => t.id === id),
-
   addToRecentlyPlayed: async (track) => {
     const userId = await getUserId()
     set((s) => {
@@ -152,33 +131,19 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
     })
     if (userId) {
       await supabase.from('recently_played').upsert({
-        user_id: userId, 
-        track_id: track.id, 
-        track_data: track, 
-        played_at: new Date().toISOString(),
+        user_id: userId, track_id: track.id, track_data: track, played_at: new Date().toISOString(),
       }, { onConflict: 'user_id, track_id' })
     }
   },
-
   createPlaylist: async (name) => {
     const userId = await getUserId()
     if (!userId) return
-    const { data, error } = await supabase
-      .from('playlists')
-      .insert({ user_id: userId, name: name })
-      .select('id, name')
-      .single()
-    
+    const { data, error } = await supabase.from('playlists').insert({ user_id: userId, name }).select('id, name').single()
     if (data && !error) {
       set((s) => ({ playlists: [...s.playlists, { id: data.id, name: data.name, tracks: [] }] }))
-    } else if (error) {
-      console.error("Supabase Hatası:", error.message)
     }
   },
-
   setPlaylists: (playlists) => set({ playlists }),
-
-  // Tracks sütunu olmadığı için bu fonksiyonlar şu anlık sadece arayüzü günceller
   addToPlaylist: async (playlistId, track) => {
     const { playlists } = get()
     const playlist = playlists.find((p) => p.id === playlistId)
@@ -186,7 +151,6 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
     const newTracks = [...playlist.tracks.filter((t) => t.id !== track.id), track]
     set({ playlists: playlists.map((p) => p.id === playlistId ? { ...p, tracks: newTracks } : p) })
   },
-
   removeFromPlaylist: async (playlistId, trackId) => {
     const { playlists } = get()
     const playlist = playlists.find((p) => p.id === playlistId)
