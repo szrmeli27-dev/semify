@@ -1,20 +1,28 @@
 "use client"
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Sidebar } from '@/components/music/sidebar'
 import { Player } from '@/components/music/player'
 import { SearchView } from '@/components/music/search-view'
 import { HomeView } from '@/components/music/home-view'
 import { LibraryView } from '@/components/music/library-view'
 import { MobileNav } from '@/components/music/mobile-nav'
+import { useMusicPlayer } from '@/hooks/use-music-player'
 
-// Tab tipinden 'party' seçeneğini kaldırdık
 type Tab = 'home' | 'search' | 'library' | 'liked' | 'recent' | 'playlist'
 
 export default function MusicApp() {
   const [activeTab, setActiveTab] = useState<Tab>('home')
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>()
   const [searchQuery, setSearchQuery] = useState('')
+  
+  // Zustand hook'undan veri yükleme fonksiyonunu ve durumunu alıyoruz
+  const { loadUserData, isLoaded } = useMusicPlayer()
+
+  // Uygulama ilk açıldığında Supabase'den verileri çekmesi için tetikliyoruz
+  useEffect(() => {
+    loadUserData()
+  }, [loadUserData])
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
@@ -22,6 +30,15 @@ export default function MusicApp() {
   }, [])
 
   const renderContent = () => {
+    // Veriler henüz yüklenmediyse bir yükleme ekranı gösterilebilir (isteğe bağlı)
+    if (!isLoaded) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-primary"></div>
+        </div>
+      )
+    }
+
     switch (activeTab) {
       case 'home':
         return <HomeView onSearch={handleSearch} />
@@ -64,7 +81,7 @@ export default function MusicApp() {
         <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />
       </div>
 
-      {/* Player (Parti barı kaldırıldı) */}
+      {/* Player */}
       <Player />
     </div>
   )
