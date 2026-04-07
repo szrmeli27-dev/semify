@@ -38,10 +38,10 @@ interface MusicPlayerState {
   toggleLike: (track: Track) => void
   isLiked: (id: string) => boolean
   addToRecentlyPlayed: (track: Track) => void
-  createPlaylist: (name: string) => void
-  addToPlaylist: (playlistId: string, track: Track) => void
-  removeFromPlaylist: (playlistId: string, trackId: string) => void
-  setPlaylists: (playlists: any[]) => void // Eksik olan fonksiyon eklendi
+  createPlaylist: (name: string) => Promise<void>
+  setPlaylists: (playlists: any[]) => void
+  addToPlaylist: (playlistId: string, track: Track) => Promise<void>
+  removeFromPlaylist: (playlistId: string, trackId: string) => Promise<void>
 }
 
 export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
@@ -57,7 +57,6 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
   playlists: [],
   isLoaded: false,
 
-  // Sayfa yenilendiğinde verileri çeken ana damar
   loadUserData: async () => {
     const userId = await getUserId()
     if (!userId) return
@@ -76,7 +75,7 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
         .limit(20),
       supabase
         .from('playlists')
-        .select('id, name, tracks')
+        .select('id, name') // Veritabanında tracks sütunu olmadığı için sildik
         .eq('user_id', userId)
         .order('created_at', { ascending: true }),
     ])
@@ -85,7 +84,7 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
       likedSongs: (likedRes.data ?? []).map((r: any) => r.track_data as Track),
       recentlyPlayed: (recentRes.data ?? []).map((r: any) => r.track_data as Track),
       playlists: (playlistRes.data ?? []).map((r: any) => ({
-        id: r.id, name: r.name, tracks: (r.tracks || []) as Track[],
+        id: r.id, name: r.name, tracks: [], // Uygulama içinde hata almamak için boş dizi
       })),
       isLoaded: true,
     })
@@ -145,17 +144,12 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
 
   isLiked: (id) => get().likedSongs.some((t) => t.id === id),
 
-  // Şarkı çalındığında veritabanına kayıt atan yer burası!
   addToRecentlyPlayed: async (track) => {
     const userId = await getUserId()
-    
-    // Önce ekranda hemen göster (Hız için)
     set((s) => {
       const filtered = s.recentlyPlayed.filter((t) => t.id !== track.id)
-      return { recently_played: [track, ...filtered].slice(0, 20) }
+      return { recentlyPlayed: [track, ...filtered].slice(0, 20) }
     })
-
-    // Sonra veritabanına sessizce kaydet
     if (userId) {
       await supabase.from('recently_played').upsert({
         user_id: userId, 
@@ -171,24 +165,26 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
     if (!userId) return
     const { data, error } = await supabase
       .from('playlists')
-      .insert({ user_id: userId, name, tracks: [] })
-      .select('id, name, tracks')
+      .insert({ user_id: userId, name: name })
+      .select('id, name')
       .single()
     
     if (data && !error) {
       set((s) => ({ playlists: [...s.playlists, { id: data.id, name: data.name, tracks: [] }] }))
+    } else if (error) {
+      console.error("Supabase Hatası:", error.message)
     }
   },
 
   setPlaylists: (playlists) => set({ playlists }),
 
+  // Tracks sütunu olmadığı için bu fonksiyonlar şu anlık sadece arayüzü günceller
   addToPlaylist: async (playlistId, track) => {
     const { playlists } = get()
     const playlist = playlists.find((p) => p.id === playlistId)
     if (!playlist) return
     const newTracks = [...playlist.tracks.filter((t) => t.id !== track.id), track]
     set({ playlists: playlists.map((p) => p.id === playlistId ? { ...p, tracks: newTracks } : p) })
-    await supabase.from('playlists').update({ tracks: newTracks }).eq('id', playlistId)
   },
 
   removeFromPlaylist: async (playlistId, trackId) => {
@@ -197,6 +193,5 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
     if (!playlist) return
     const newTracks = playlist.tracks.filter((t) => t.id !== trackId)
     set({ playlists: playlists.map((p) => p.id === playlistId ? { ...p, tracks: newTracks } : p) })
-    await supabase.from('playlists').update({ tracks: newTracks }).eq('id', playlistId)
   },
 }))
