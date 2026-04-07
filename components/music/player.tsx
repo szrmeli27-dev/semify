@@ -86,6 +86,26 @@ export function Player() {
     try { playerRef.current.setVolume?.(isMuted ? 0 : volume * 100) } catch {}
   }, [volume, isMuted, isPlayerReady])
 
+ // player.tsx içindeki mevcut useEffect'lerin altına ekle
+useEffect(() => {
+  const saveToHistory = async () => {
+    if (!currentTrack) return
+    
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    await supabase.from('recently_played').upsert({
+      user_id: user.id,
+      track_id: currentTrack.id,
+      played_at: new Date().toISOString()
+    }, { onConflict: 'user_id, track_id' })
+  }
+
+  if (isPlaying) {
+    saveToHistory()
+  }
+}, [currentTrack?.id, isPlaying])
+
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current)
     if (isPlaying && playerRef.current) {
