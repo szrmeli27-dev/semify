@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from 'react'
 import { useMusicPlayer } from '@/hooks/use-music-player'
 import { Track } from '@/types/music'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -8,11 +9,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { 
   Play, 
   Pause, 
@@ -22,15 +25,83 @@ import {
   ListPlus,
   Trash2,
   Plus,
-  Shuffle
+  Shuffle,
+  Check,
+  Music2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from '@/hooks/use-toast'
 
 type LibraryTab = 'liked' | 'recent' | 'playlist'
 
 interface LibraryViewProps {
   tab: LibraryTab
   playlistId?: string
+}
+
+// Her track için ayrı "+" popover state'i
+function AddToPlaylistButton({ track }: { track: Track }) {
+  const { playlists, addToPlaylist } = useMusicPlayer()
+  const [open, setOpen] = useState(false)
+  const [addedIds, setAddedIds] = useState<string[]>([])
+
+  const handleAdd = async (playlistId: string, playlistName: string) => {
+    await addToPlaylist(playlistId, track)
+    setAddedIds((prev) => [...prev, playlistId])
+    toast({
+      title: 'Eklendi',
+      description: `"${track.title}" → ${playlistName}`,
+    })
+    setTimeout(() => setOpen(false), 600)
+  }
+
+  if (playlists.length === 0) return null
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="w-8 h-8 flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-secondary"
+          title="Çalma listesine ekle"
+        >
+          <Plus className="w-4 h-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="left"
+        className="w-52 p-1"
+      >
+        <p className="text-xs text-muted-foreground px-2 py-1 mb-1 font-medium">
+          Çalma listesi seç
+        </p>
+        {playlists.map((playlist) => {
+          const isAdded = addedIds.includes(playlist.id)
+          const alreadyIn = playlist.tracks.some((t) => t.id === track.id)
+          return (
+            <button
+              key={playlist.id}
+              onClick={() => !alreadyIn && handleAdd(playlist.id, playlist.name)}
+              className={cn(
+                "w-full flex items-center gap-2 px-2 py-2 rounded-sm text-sm transition-colors",
+                alreadyIn || isAdded
+                  ? "text-muted-foreground cursor-default"
+                  : "hover:bg-secondary cursor-pointer text-foreground"
+              )}
+            >
+              <Music2 className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
+              <span className="truncate flex-1 text-left">{playlist.name}</span>
+              {(isAdded || alreadyIn) && (
+                <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+              )}
+            </button>
+          )
+        })}
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 export function LibraryView({ tab, playlistId }: LibraryViewProps) {
@@ -45,7 +116,6 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
     toggleLike,
     isLiked,
     addToQueue,
-    addToPlaylist,
     removeFromPlaylist
   } = useMusicPlayer()
 
@@ -67,7 +137,7 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
           gradient: 'from-emerald-600 via-teal-600 to-cyan-500',
           icon: Clock
         }
-      case 'playlist':
+      case 'playlist': {
         const playlist = playlists.find(p => p.id === playlistId)
         return {
           title: playlist?.name || 'Çalma Listesi',
@@ -77,6 +147,7 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
           icon: null,
           playlistId
         }
+      }
       default:
         return {
           title: 'Kitaplık',
@@ -94,9 +165,7 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
   const handlePlayAll = (shuffle = false) => {
     if (content.tracks.length > 0) {
       let tracks = [...content.tracks]
-      if (shuffle) {
-        tracks = tracks.sort(() => Math.random() - 0.5)
-      }
+      if (shuffle) tracks = tracks.sort(() => Math.random() - 0.5)
       playTrack(tracks[0], tracks)
     }
   }
@@ -114,10 +183,7 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
       <ScrollArea className="h-full">
         <div className="pb-32">
           {/* Header */}
-          <div className={cn(
-            "p-6 pb-8 bg-gradient-to-b",
-            content.gradient
-          )}>
+          <div className={cn("p-6 pb-8 bg-gradient-to-b", content.gradient)}>
             <div className="flex items-end gap-6 pt-12">
               {/* Cover Art */}
               <div className="w-48 h-48 rounded-lg shadow-2xl overflow-hidden flex-shrink-0">
@@ -125,13 +191,13 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
                   <div className="grid grid-cols-2 grid-rows-2 w-full h-full">
                     {content.tracks.slice(0, 4).map((track, i) => (
                       <img
-                        key={track.id}
+                        key={`${track.id}-${i}`}
                         src={track.thumbnail}
                         alt=""
                         className="w-full h-full object-cover"
                       />
                     ))}
-                    {content.tracks.length < 4 && 
+                    {content.tracks.length < 4 &&
                       Array.from({ length: 4 - content.tracks.length }).map((_, i) => (
                         <div key={i} className="bg-secondary" />
                       ))
@@ -147,7 +213,7 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
               {/* Info */}
               <div className="flex-1">
                 <p className="text-sm font-medium text-white/80 mb-2">
-                  {tab === 'playlist' ? 'ÇALMA LİSTESİ' : 'KOLEKSIYON'}
+                  {tab === 'playlist' ? 'ÇALMA LİSTESİ' : 'KOLEKSİYON'}
                 </p>
                 <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 text-balance">
                   {content.title}
@@ -207,7 +273,10 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
                     <div
                       key={`${track.id}-${index}`}
                       className={cn(
-                        "group grid grid-cols-[16px_1fr_40px] md:grid-cols-[16px_1fr_120px_40px] gap-4 px-4 py-2 rounded-md transition-colors",
+                        "group grid gap-4 px-4 py-2 rounded-md transition-colors items-center",
+                        // Sütun yapısı: # | info | süre | kalp | + | ...
+                        "grid-cols-[16px_1fr_auto_auto_auto]",
+                        "md:grid-cols-[16px_1fr_120px_auto_auto_auto]",
                         "hover:bg-secondary/80",
                         isCurrentTrack && "bg-secondary"
                       )}
@@ -228,7 +297,7 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
                             index + 1
                           )}
                         </span>
-                        <button 
+                        <button
                           className="hidden group-hover:block"
                           onClick={() => handlePlayTrack(track)}
                         >
@@ -265,69 +334,53 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
                         {track.duration}
                       </span>
 
-                      {/* Actions */}
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="w-8 h-8 opacity-0 group-hover:opacity-100"
-                          onClick={() => toggleLike(track)}
-                        >
-                          <Heart 
-                            className={cn(
-                              "w-4 h-4",
-                              isLiked(track.id) 
-                                ? "fill-primary text-primary" 
-                                : "text-muted-foreground"
-                            )} 
-                          />
-                        </Button>
-                        
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="w-8 h-8 opacity-0 group-hover:opacity-100"
+                      {/* ❤️ Like butonu — her zaman görünür (hover'da dolar) */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-8 h-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => toggleLike(track)}
+                      >
+                        <Heart
+                          className={cn(
+                            "w-4 h-4",
+                            isLiked(track.id)
+                              ? "fill-primary text-primary"
+                              : "text-muted-foreground"
+                          )}
+                        />
+                      </Button>
+
+                      {/* ➕ Çalma listesine ekle — her zaman görünür */}
+                      <AddToPlaylistButton track={track} />
+
+                      {/* ••• Diğer seçenekler */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="w-8 h-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem onClick={() => addToQueue(track)}>
+                            <ListPlus className="w-4 h-4 mr-2" />
+                            Sıraya Ekle
+                          </DropdownMenuItem>
+                          {tab === 'playlist' && playlistId && (
+                            <DropdownMenuItem
+                              onClick={() => removeFromPlaylist(playlistId, track.id)}
+                              className="text-destructive"
                             >
-                              <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-48">
-                            <DropdownMenuItem onClick={() => addToQueue(track)}>
-                              <ListPlus className="w-4 h-4 mr-2" />
-                              Sıraya Ekle
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Listeden Kaldır
                             </DropdownMenuItem>
-                            {tab === 'playlist' && playlistId && (
-                              <DropdownMenuItem 
-                                onClick={() => removeFromPlaylist(playlistId, track.id)}
-                                className="text-destructive"
-                              >
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Listeden Kaldır
-                              </DropdownMenuItem>
-                            )}
-                            {playlists.length > 0 && (
-                              <DropdownMenuSub>
-                                <DropdownMenuSubTrigger>
-                                  <Plus className="w-4 h-4 mr-2" />
-                                  Listeye Ekle
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent>
-                                  {playlists.map((playlist) => (
-                                    <DropdownMenuItem
-                                      key={playlist.id}
-                                      onClick={() => addToPlaylist(playlist.id, track)}
-                                    >
-                                      {playlist.name}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuSubContent>
-                              </DropdownMenuSub>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   )
                 })}
