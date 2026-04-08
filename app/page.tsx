@@ -15,11 +15,9 @@ export default function MusicApp() {
   const [activeTab, setActiveTab] = useState<Tab>('home')
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>()
   const [searchQuery, setSearchQuery] = useState('')
-  
-  // Zustand hook'undan veri yükleme fonksiyonunu ve durumunu alıyoruz
+
   const { loadUserData, isLoaded } = useMusicPlayer()
 
-  // Uygulama ilk açıldığında Supabase'den verileri çekmesi için tetikliyoruz
   useEffect(() => {
     loadUserData()
   }, [loadUserData])
@@ -30,7 +28,7 @@ export default function MusicApp() {
   }, [])
 
   const renderContent = () => {
-    // Veriler henüz yüklenmediyse bir yükleme ekranı gösterilebilir (isteğe bağlı)
+
     if (!isLoaded) {
       return (
         <div className="flex items-center justify-center h-full">
