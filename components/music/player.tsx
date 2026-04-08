@@ -2,16 +2,19 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useMusicPlayer } from '@/hooks/use-music-player'
-import { createClient } from '@/lib/supabase/client'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
-import { 
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
-  Heart, Repeat, Shuffle, ListMusic, ChevronDown
+  Heart, Repeat, Shuffle, ListMusic, ChevronDown, Plus, Music2, Check
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const supabase = createClient()
+import { toast } from '@/hooks/use-toast'
 
 declare global {
   interface Window {
@@ -20,12 +23,84 @@ declare global {
   }
 }
 
+// ── Çalma listesine ekle butonu ───────────────────────────────
+function AddToPlaylistBtn({ size = 'default' }: { size?: 'default' | 'sm' }) {
+  const { currentTrack, playlists, addToPlaylist } = useMusicPlayer()
+  const [open, setOpen] = useState(false)
+  const [addedIds, setAddedIds] = useState<string[]>([])
+
+  const trackId = currentTrack?.id
+  useEffect(() => { setAddedIds([]) }, [trackId])
+
+  if (!currentTrack) return null
+
+  const handleAdd = async (playlistId: string, playlistName: string) => {
+    await addToPlaylist(playlistId, currentTrack)
+    setAddedIds((prev) => [...prev, playlistId])
+    toast({
+      title: 'Eklendi ✓',
+      description: `"${currentTrack.title}" → ${playlistName}`,
+    })
+    setTimeout(() => setOpen(false), 700)
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={size === 'sm' ? 'w-9 h-9' : 'w-10 h-10'}
+          title="Çalma listesine ekle"
+        >
+          <Plus className={cn(size === 'sm' ? 'w-4 h-4' : 'w-5 h-5', 'text-muted-foreground')} />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" side="top" className="w-52 p-1 mb-2">
+        <p className="text-xs text-muted-foreground px-2 py-1.5 font-medium border-b border-border mb-1">
+          Çalma listesi seç
+        </p>
+        {playlists.length === 0 ? (
+          <div className="flex flex-col items-center gap-1 py-4 px-2 text-center">
+            <Music2 className="w-5 h-5 text-muted-foreground mb-1" />
+            <p className="text-xs text-muted-foreground">Henüz çalma listen yok.</p>
+            <p className="text-xs text-muted-foreground">Sol panelden liste oluştur.</p>
+          </div>
+        ) : (
+          playlists.map((playlist) => {
+            const alreadyIn = playlist.tracks.some((t) => t.id === currentTrack.id)
+            const justAdded = addedIds.includes(playlist.id)
+            const done = alreadyIn || justAdded
+            return (
+              <button
+                key={playlist.id}
+                onClick={() => !done && handleAdd(playlist.id, playlist.name)}
+                className={cn(
+                  'w-full flex items-center gap-2 px-2 py-2 rounded-sm text-sm transition-colors',
+                  done
+                    ? 'text-muted-foreground cursor-default'
+                    : 'hover:bg-secondary cursor-pointer text-foreground'
+                )}
+              >
+                <Music2 className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
+                <span className="truncate flex-1 text-left">{playlist.name}</span>
+                {done && <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" />}
+              </button>
+            )
+          })
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// ── Ana Player ────────────────────────────────────────────────
 export function Player() {
   const {
     currentTrack, isPlaying, volume, progress, duration,
     togglePlay, setVolume, setProgress, setDuration,
     nextTrack, previousTrack, toggleLike, isLiked, queue,
-    addToRecentlyPlayed
+    addToRecentlyPlayed,
   } = useMusicPlayer()
 
   const playerRef = useRef<YT.Player | null>(null)
@@ -90,11 +165,8 @@ export function Player() {
     try { playerRef.current.setVolume?.(isMuted ? 0 : volume * 100) } catch {}
   }, [volume, isMuted, isPlayerReady])
 
-  // ✅ DÜZELTİLDİ: addToRecentlyPlayed hook'tan kullanılıyor (supabase'e de yazıyor)
   useEffect(() => {
-    if (currentTrack && isPlaying) {
-      addToRecentlyPlayed(currentTrack)
-    }
+    if (currentTrack) addToRecentlyPlayed(currentTrack)
   }, [currentTrack?.id])
 
   useEffect(() => {
@@ -122,29 +194,36 @@ export function Player() {
     else { previousVolume.current = volume; setVolume(0); setIsMuted(true) }
   }
 
-  const formatTime = (s: number) => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`
+  const formatTime = (s: number) =>
+    `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`
   const progressPercent = duration > 0 ? (progress / duration) * 100 : 0
 
   return (
     <>
       <div id="youtube-player" className="hidden" />
 
-      {/* Mobile Expanded Full Screen Player */}
+      {/* ── Mobile Expanded Player ── */}
       {isExpanded && (
-        <div className="md:hidden fixed inset-0 z-[100] bg-background flex flex-col safe-area-inset">
+        <div className="md:hidden fixed inset-0 z-[100] bg-background flex flex-col">
           <div className="flex items-center justify-between px-4 pt-12 pb-4">
             <Button variant="ghost" size="icon" onClick={() => setIsExpanded(false)}>
               <ChevronDown className="w-6 h-6" />
             </Button>
             <span className="text-sm font-medium text-muted-foreground">Şu An Çalıyor</span>
-            <div className="w-10" />
+            {/* ✅ Sağ üst: + butonu */}
+            <AddToPlaylistBtn size="sm" />
           </div>
+
           <div className="flex-1 flex items-center justify-center px-8">
             {currentTrack && (
-              <img src={currentTrack.thumbnail} alt={currentTrack.title}
-                className="w-full max-w-xs aspect-square rounded-2xl object-cover shadow-2xl" />
+              <img
+                src={currentTrack.thumbnail}
+                alt={currentTrack.title}
+                className="w-full max-w-xs aspect-square rounded-2xl object-cover shadow-2xl"
+              />
             )}
           </div>
+
           {currentTrack && (
             <div className="px-6 pb-10">
               <div className="flex items-center justify-between mb-5">
@@ -152,8 +231,8 @@ export function Player() {
                   <h3 className="font-bold text-xl text-foreground truncate">{currentTrack.title}</h3>
                   <p className="text-muted-foreground truncate mt-1">{currentTrack.artist}</p>
                 </div>
-                <Button variant="ghost" size="icon" className="ml-4" onClick={() => toggleLike(currentTrack)}>
-                  <Heart className={cn("w-6 h-6", isLiked(currentTrack.id) ? "fill-primary text-primary" : "text-muted-foreground")} />
+                <Button variant="ghost" size="icon" className="ml-2" onClick={() => toggleLike(currentTrack)}>
+                  <Heart className={cn('w-6 h-6', isLiked(currentTrack.id) ? 'fill-primary text-primary' : 'text-muted-foreground')} />
                 </Button>
               </div>
               <div className="mb-5">
@@ -164,26 +243,27 @@ export function Player() {
                 </div>
               </div>
               <div className="flex items-center justify-between mb-5">
-                <Button variant="ghost" size="icon" className={cn("w-10 h-10", isShuffle && "text-primary")} onClick={() => setIsShuffle(!isShuffle)}>
+                <Button variant="ghost" size="icon" className={cn('w-10 h-10', isShuffle && 'text-primary')} onClick={() => setIsShuffle(!isShuffle)}>
                   <Shuffle className="w-5 h-5" />
                 </Button>
                 <Button variant="ghost" size="icon" className="w-12 h-12" onClick={previousTrack}>
                   <SkipBack className="w-6 h-6" />
                 </Button>
-                <Button size="icon" className="w-16 h-16 rounded-full bg-foreground text-background hover:scale-105 transition-transform"
-                  onClick={togglePlay}>
+                <Button size="icon" className="w-16 h-16 rounded-full bg-foreground text-background hover:scale-105 transition-transform" onClick={togglePlay}>
                   {isPlaying ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 ml-0.5" />}
                 </Button>
                 <Button variant="ghost" size="icon" className="w-12 h-12" onClick={nextTrack} disabled={queue.length === 0}>
                   <SkipForward className="w-6 h-6" />
                 </Button>
-                <Button variant="ghost" size="icon" className={cn("w-10 h-10", isRepeat && "text-primary")} onClick={() => setIsRepeat(!isRepeat)}>
+                <Button variant="ghost" size="icon" className={cn('w-10 h-10', isRepeat && 'text-primary')} onClick={() => setIsRepeat(!isRepeat)}>
                   <Repeat className="w-5 h-5" />
                 </Button>
               </div>
               <div className="flex items-center gap-3">
                 <Button variant="ghost" size="icon" className="w-8 h-8" onClick={toggleMute}>
-                  {isMuted || volume === 0 ? <VolumeX className="w-5 h-5 text-muted-foreground" /> : <Volume2 className="w-5 h-5 text-muted-foreground" />}
+                  {isMuted || volume === 0
+                    ? <VolumeX className="w-5 h-5 text-muted-foreground" />
+                    : <Volume2 className="w-5 h-5 text-muted-foreground" />}
                 </Button>
                 <Slider value={[isMuted ? 0 : volume]} max={1} step={0.01} onValueChange={handleVolumeChange} className="flex-1" />
               </div>
@@ -192,30 +272,39 @@ export function Player() {
         </div>
       )}
 
-      {/* Player Bar */}
+      {/* ── Player Bar ── */}
       <div className="bg-card/95 backdrop-blur-xl border-t border-border flex-shrink-0">
-        {/* Progress line */}
         <div className="h-0.5 bg-border">
           <div className="h-full bg-primary transition-all" style={{ width: `${progressPercent}%` }} />
         </div>
 
-        {/* Desktop Player */}
         {currentTrack ? (
           <>
+            {/* ── Desktop ── */}
             <div className="hidden md:flex items-center justify-between h-20 px-4 max-w-screen-2xl mx-auto">
-              <div className="flex items-center gap-4 flex-1 min-w-0">
-                <img src={currentTrack.thumbnail} alt={currentTrack.title} className="w-14 h-14 rounded-md object-cover shadow-lg" />
+
+              {/* Sol: kapak + isim + ❤ + ➕ */}
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <img
+                  src={currentTrack.thumbnail}
+                  alt={currentTrack.title}
+                  className="w-14 h-14 rounded-md object-cover shadow-lg flex-shrink-0"
+                />
                 <div className="min-w-0">
-                  <h4 className="font-semibold text-sm truncate text-foreground max-w-[200px]">{currentTrack.title}</h4>
-                  <p className="text-xs text-muted-foreground truncate max-w-[180px]">{currentTrack.artist}</p>
+                  <h4 className="font-semibold text-sm truncate text-foreground max-w-[160px]">{currentTrack.title}</h4>
+                  <p className="text-xs text-muted-foreground truncate max-w-[140px]">{currentTrack.artist}</p>
                 </div>
-                <Button variant="ghost" size="icon" className="flex-shrink-0" onClick={() => toggleLike(currentTrack)}>
-                  <Heart className={cn("w-5 h-5", isLiked(currentTrack.id) ? "fill-primary text-primary" : "text-muted-foreground")} />
+                <Button variant="ghost" size="icon" className="w-8 h-8 flex-shrink-0" onClick={() => toggleLike(currentTrack)}>
+                  <Heart className={cn('w-4 h-4', isLiked(currentTrack.id) ? 'fill-primary text-primary' : 'text-muted-foreground')} />
                 </Button>
+                {/* ✅ Desktop bar: + butonu */}
+                <AddToPlaylistBtn size="sm" />
               </div>
+
+              {/* Orta: kontroller */}
               <div className="flex flex-col items-center gap-2 flex-1 max-w-xl">
                 <div className="flex items-center gap-4">
-                  <Button variant="ghost" size="icon" className={cn("w-8 h-8", isShuffle && "text-primary")} onClick={() => setIsShuffle(!isShuffle)}>
+                  <Button variant="ghost" size="icon" className={cn('w-8 h-8', isShuffle && 'text-primary')} onClick={() => setIsShuffle(!isShuffle)}>
                     <Shuffle className="w-4 h-4" />
                   </Button>
                   <Button variant="ghost" size="icon" className="w-8 h-8" onClick={previousTrack}>
@@ -227,7 +316,7 @@ export function Player() {
                   <Button variant="ghost" size="icon" className="w-8 h-8" onClick={nextTrack} disabled={queue.length === 0}>
                     <SkipForward className="w-5 h-5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className={cn("w-8 h-8", isRepeat && "text-primary")} onClick={() => setIsRepeat(!isRepeat)}>
+                  <Button variant="ghost" size="icon" className={cn('w-8 h-8', isRepeat && 'text-primary')} onClick={() => setIsRepeat(!isRepeat)}>
                     <Repeat className="w-4 h-4" />
                   </Button>
                 </div>
@@ -237,35 +326,42 @@ export function Player() {
                   <span className="text-xs text-muted-foreground w-10">{formatTime(duration)}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-3 flex-1 justify-end">
+
+              {/* Sağ: ses */}
+              <div className="flex items-center gap-2 flex-1 justify-end">
                 <Button variant="ghost" size="icon" className="w-8 h-8">
                   <ListMusic className="w-5 h-5 text-muted-foreground" />
                 </Button>
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" className="w-8 h-8" onClick={toggleMute}>
-                    {isMuted || volume === 0 ? <VolumeX className="w-5 h-5 text-muted-foreground" /> : <Volume2 className="w-5 h-5 text-muted-foreground" />}
-                  </Button>
-                  <Slider value={[isMuted ? 0 : volume]} max={1} step={0.01} onValueChange={handleVolumeChange} className="w-24" />
-                </div>
+                <Button variant="ghost" size="icon" className="w-8 h-8" onClick={toggleMute}>
+                  {isMuted || volume === 0
+                    ? <VolumeX className="w-5 h-5 text-muted-foreground" />
+                    : <Volume2 className="w-5 h-5 text-muted-foreground" />}
+                </Button>
+                <Slider value={[isMuted ? 0 : volume]} max={1} step={0.01} onValueChange={handleVolumeChange} className="w-24" />
               </div>
             </div>
 
-            {/* Mobile Mini Player */}
-            <div className="md:hidden flex items-center gap-3 h-16 px-3 cursor-pointer" onClick={() => setIsExpanded(true)}>
+            {/* ── Mobile Mini Player ── */}
+            <div
+              className="md:hidden flex items-center gap-3 h-16 px-3 cursor-pointer"
+              onClick={() => setIsExpanded(true)}
+            >
               <img src={currentTrack.thumbnail} alt={currentTrack.title} className="w-10 h-10 rounded-md object-cover flex-shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-sm text-foreground truncate">{currentTrack.title}</p>
                 <p className="text-xs text-muted-foreground truncate">{currentTrack.artist}</p>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                <Button variant="ghost" size="icon" className="w-10 h-10" onClick={() => toggleLike(currentTrack)}>
-                  <Heart className={cn("w-5 h-5", isLiked(currentTrack.id) ? "fill-primary text-primary" : "text-muted-foreground")} />
+              <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                <Button variant="ghost" size="icon" className="w-9 h-9" onClick={() => toggleLike(currentTrack)}>
+                  <Heart className={cn('w-4 h-4', isLiked(currentTrack.id) ? 'fill-primary text-primary' : 'text-muted-foreground')} />
                 </Button>
-                <Button variant="ghost" size="icon" className="w-10 h-10" onClick={togglePlay}>
+                {/* ✅ Mobile mini bar: + butonu */}
+                <AddToPlaylistBtn size="sm" />
+                <Button variant="ghost" size="icon" className="w-9 h-9" onClick={togglePlay}>
                   {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
                 </Button>
-                <Button variant="ghost" size="icon" className="w-10 h-10" onClick={nextTrack} disabled={queue.length === 0}>
-                  <SkipForward className="w-5 h-5 text-muted-foreground" />
+                <Button variant="ghost" size="icon" className="w-9 h-9" onClick={nextTrack} disabled={queue.length === 0}>
+                  <SkipForward className="w-4 h-4 text-muted-foreground" />
                 </Button>
               </div>
             </div>
