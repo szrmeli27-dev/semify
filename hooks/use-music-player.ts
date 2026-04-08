@@ -50,6 +50,11 @@ interface MusicPlayerState {
   removeFromPlaylist: (playlistId: string, trackId: string) => Promise<void>
 }
 
+// tracks alanının her zaman dizi olmasını garantile
+function safeTracks(raw: any): Track[] {
+  return Array.isArray(raw) ? raw : []
+}
+
 export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
   currentTrack: null,
   isPlaying: false,
@@ -65,7 +70,10 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
 
   loadUserData: async () => {
     const userId = await getUserId()
-    if (!userId) return
+    if (!userId) {
+      set({ isLoaded: true })
+      return
+    }
 
     const [likedRes, recentRes, playlistRes] = await Promise.all([
       supabase
@@ -79,7 +87,6 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
         .eq('user_id', userId)
         .order('played_at', { ascending: false })
         .limit(20),
-      // tracks sütununu da çekiyoruz (JSONB array olarak playlists tablosunda)
       supabase
         .from('playlists')
         .select('id, name, tracks')
@@ -93,8 +100,7 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
       playlists: (playlistRes.data ?? []).map((r: any) => ({
         id: r.id,
         name: r.name,
-        // tracks sütunu JSONB array — yoksa boş dizi
-        tracks: Array.isArray(r.tracks) ? (r.tracks as Track[]) : [],
+        tracks: safeTracks(r.tracks),
       })),
       isLoaded: true,
     })
@@ -212,43 +218,18 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
   addToPlaylist: async (playlistId, track) => {
     const { playlists } = get()
     const playlist = playlists.find((p) => p.id === playlistId)
-    if (!playlist) return
+    if (!playlist) {
+      console.error('addToPlaylist: playlist bulunamadı', playlistId)
+      return
+    }
+
+    // ✅ tracks her zaman dizi olsun
+    const currentTracks = safeTracks(playlist.tracks)
 
     // Aynı şarkı zaten varsa ekleme
-    if (playlist.tracks.some((t) => t.id === track.id)) return
+    if (currentTracks.some((t) => t.id === track.id)) return
 
-    const newTracks = [...playlist.tracks, track]
-
-    // Önce UI'ı güncelle (optimistic)
-    set({
-      playlists: playlists.map((p) =>
-        p.id === playlistId ? { ...p, tracks: newTracks } : p
-      ),
-    })
-
-    // Supabase'e kaydet — tracks JSONB sütununa yaz
-    const { error } = await supabase
-      .from('playlists')
-      .update({ tracks: newTracks })
-      .eq('id', playlistId)
-
-    if (error) {
-      // Hata olursa geri al
-      set({
-        playlists: playlists.map((p) =>
-          p.id === playlistId ? { ...p, tracks: playlist.tracks } : p
-        ),
-      })
-      console.error('addToPlaylist error:', error)
-    }
-  },
-
-  removeFromPlaylist: async (playlistId, trackId) => {
-    const { playlists } = get()
-    const playlist = playlists.find((p) => p.id === playlistId)
-    if (!playlist) return
-
-    const newTracks = playlist.tracks.filter((t) => t.id !== trackId)
+    const newTracks = [...currentTracks, track]
 
     // Önce UI'ı güncelle (optimistic)
     set({
@@ -264,13 +245,44 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
       .eq('id', playlistId)
 
     if (error) {
+      console.error('addToPlaylist Supabase hatası:', error)
       // Hata olursa geri al
       set({
         playlists: playlists.map((p) =>
-          p.id === playlistId ? { ...p, tracks: playlist.tracks } : p
+          p.id === playlistId ? { ...p, tracks: currentTracks } : p
         ),
       })
-      console.error('removeFromPlaylist error:', error)
+    }
+  },
+
+  removeFromPlaylist: async (playlistId, trackId) => {
+    const { playlists } = get()
+    const playlist = playlists.find((p) => p.id === playlistId)
+    if (!playlist) return
+
+    const currentTracks = safeTracks(playlist.tracks)
+    const newTracks = currentTracks.filter((t) => t.id !== trackId)
+
+    // Önce UI'ı güncelle (optimistic)
+    set({
+      playlists: playlists.map((p) =>
+        p.id === playlistId ? { ...p, tracks: newTracks } : p
+      ),
+    })
+
+    // Supabase'e kaydet
+    const { error } = await supabase
+      .from('playlists')
+      .update({ tracks: newTracks })
+      .eq('id', playlistId)
+
+    if (error) {
+      console.error('removeFromPlaylist Supabase hatası:', error)
+      set({
+        playlists: playlists.map((p) =>
+          p.id === playlistId ? { ...p, tracks: currentTracks } : p
+        ),
+      })
     }
   },
 }))

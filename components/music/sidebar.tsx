@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { useMusicPlayer } from '@/hooks/use-music-player'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -18,29 +17,20 @@ import { cn } from '@/lib/utils'
 import { UserProfile } from './user-profile'
 
 export function Sidebar({ activeTab, onTabChange, selectedPlaylistId, onPlaylistSelect }: any) {
-  const { playlists, likedSongs, recentlyPlayed, setPlaylists } = useMusicPlayer()
+  // ✅ DÜZELTİLDİ: setPlaylists kaldırıldı, createPlaylist hook'u kullanılıyor
+  const { playlists, likedSongs, recentlyPlayed, createPlaylist } = useMusicPlayer()
   const [newPlaylistName, setNewPlaylistName] = useState('')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const supabase = createClient()
+  const [isCreating, setIsCreating] = useState(false)
 
   const handleCreatePlaylist = async () => {
-    if (!newPlaylistName.trim()) return
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data, error } = await supabase
-      .from('playlists')
-      .insert([{ name: newPlaylistName.trim(), user_id: user.id }])
-      .select()
-
-    if (!error && data) {
-      setPlaylists([...playlists, { ...data[0], tracks: [] }])
-      setNewPlaylistName('')
-      setIsDialogOpen(false)
-    } else {
-      alert('Liste oluşturulamadı: ' + error?.message)
-    }
+    if (!newPlaylistName.trim() || isCreating) return
+    setIsCreating(true)
+    // createPlaylist hem Supabase'e yazar hem state'i günceller (tracks: [] ile)
+    await createPlaylist(newPlaylistName.trim())
+    setNewPlaylistName('')
+    setIsDialogOpen(false)
+    setIsCreating(false)
   }
 
   return (
@@ -122,8 +112,11 @@ export function Sidebar({ activeTab, onTabChange, selectedPlaylistId, onPlaylist
                   <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                     İptal
                   </Button>
-                  <Button onClick={handleCreatePlaylist} disabled={!newPlaylistName.trim()}>
-                    Oluştur
+                  <Button
+                    onClick={handleCreatePlaylist}
+                    disabled={!newPlaylistName.trim() || isCreating}
+                  >
+                    {isCreating ? 'Oluşturuluyor...' : 'Oluştur'}
                   </Button>
                 </div>
               </div>
@@ -198,11 +191,9 @@ export function Sidebar({ activeTab, onTabChange, selectedPlaylistId, onPlaylist
                     </div>
                     <div className="flex flex-col items-start overflow-hidden">
                       <span className="text-sm truncate w-full">{playlist.name}</span>
-                      {playlist.tracks && (
-                        <span className="text-xs text-muted-foreground">
-                          {playlist.tracks.length} şarkı
-                        </span>
-                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {Array.isArray(playlist.tracks) ? playlist.tracks.length : 0} şarkı
+                      </span>
                     </div>
                   </Button>
                 ))}
