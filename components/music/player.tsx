@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useMusicPlayer } from '@/hooks/use-music-player'
+import { createClient } from '@/lib/supabase/client'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
 import { 
@@ -9,6 +10,8 @@ import {
   Heart, Repeat, Shuffle, ListMusic, ChevronDown
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+const supabase = createClient()
 
 declare global {
   interface Window {
@@ -21,7 +24,8 @@ export function Player() {
   const {
     currentTrack, isPlaying, volume, progress, duration,
     togglePlay, setVolume, setProgress, setDuration,
-    nextTrack, previousTrack, toggleLike, isLiked, queue
+    nextTrack, previousTrack, toggleLike, isLiked, queue,
+    addToRecentlyPlayed
   } = useMusicPlayer()
 
   const playerRef = useRef<YT.Player | null>(null)
@@ -86,25 +90,12 @@ export function Player() {
     try { playerRef.current.setVolume?.(isMuted ? 0 : volume * 100) } catch {}
   }, [volume, isMuted, isPlayerReady])
 
- // player.tsx içindeki mevcut useEffect'lerin altına ekle
-useEffect(() => {
-  const saveToHistory = async () => {
-    if (!currentTrack) return
-    
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    await supabase.from('recently_played').upsert({
-      user_id: user.id,
-      track_id: currentTrack.id,
-      played_at: new Date().toISOString()
-    }, { onConflict: 'user_id, track_id' })
-  }
-
-  if (isPlaying) {
-    saveToHistory()
-  }
-}, [currentTrack?.id, isPlaying])
+  // ✅ DÜZELTİLDİ: addToRecentlyPlayed hook'tan kullanılıyor (supabase'e de yazıyor)
+  useEffect(() => {
+    if (currentTrack && isPlaying) {
+      addToRecentlyPlayed(currentTrack)
+    }
+  }, [currentTrack?.id])
 
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current)
@@ -201,7 +192,7 @@ useEffect(() => {
         </div>
       )}
 
-      {/* Player Bar - static in flex layout */}
+      {/* Player Bar */}
       <div className="bg-card/95 backdrop-blur-xl border-t border-border flex-shrink-0">
         {/* Progress line */}
         <div className="h-0.5 bg-border">

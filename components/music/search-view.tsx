@@ -23,9 +23,11 @@ import {
   MoreHorizontal, 
   Heart, 
   ListPlus,
-  Plus
+  Plus,
+  Music2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from '@/hooks/use-toast'
 
 const POPULAR_SEARCHES = [
   { name: 'Pop Hits', color: 'from-pink-500 to-rose-600' },
@@ -82,14 +84,12 @@ export function SearchView({ initialQuery = '' }: SearchViewProps) {
     }
   }, [])
 
-  // Set initial query if provided
   useEffect(() => {
     if (initialQuery && initialQuery !== query) {
       setQuery(initialQuery)
     }
   }, [initialQuery])
 
-  // Debounced search
   useEffect(() => {
     const timer = setTimeout(() => {
       searchMusic(query)
@@ -108,6 +108,15 @@ export function SearchView({ initialQuery = '' }: SearchViewProps) {
     } else {
       playTrack(track, results)
     }
+  }
+
+  // ✅ DÜZELTİLDİ: Playlist'e ekle butonu ayrı component olarak, her zaman gösteriliyor
+  const handleAddToPlaylist = async (playlistId: string, track: Track, playlistName: string) => {
+    await addToPlaylist(playlistId, track)
+    toast({
+      title: 'Eklendi',
+      description: `"${track.title}" → ${playlistName}`,
+    })
   }
 
   return (
@@ -161,9 +170,7 @@ export function SearchView({ initialQuery = '' }: SearchViewProps) {
             <div>
               {results.length > 0 ? (
                 <>
-                  <h2 className="text-xl font-bold mb-4 text-foreground">
-                    Sonuçlar
-                  </h2>
+                  <h2 className="text-xl font-bold mb-4 text-foreground">Sonuçlar</h2>
                   <div className="space-y-1">
                     {results.map((track, index) => {
                       const isCurrentTrack = currentTrack?.id === track.id
@@ -179,7 +186,7 @@ export function SearchView({ initialQuery = '' }: SearchViewProps) {
                           )}
                           onClick={() => handlePlayTrack(track)}
                         >
-                          {/* Thumbnail with play button */}
+                          {/* Thumbnail */}
                           <div className="relative flex-shrink-0">
                             <img
                               src={track.thumbnail}
@@ -187,7 +194,7 @@ export function SearchView({ initialQuery = '' }: SearchViewProps) {
                               className="w-12 h-12 rounded object-cover"
                             />
                             <button
-                              onClick={() => handlePlayTrack(track)}
+                              onClick={(e) => { e.stopPropagation(); handlePlayTrack(track) }}
                               className={cn(
                                 "absolute inset-0 flex items-center justify-center bg-black/60 rounded transition-opacity",
                                 isCurrentTrack ? "opacity-100" : "opacity-0 group-hover:opacity-100"
@@ -215,21 +222,20 @@ export function SearchView({ initialQuery = '' }: SearchViewProps) {
                           </div>
 
                           {/* Actions */}
-                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                          <div
+                            className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <Button
                               variant="ghost"
                               size="icon"
                               className="w-8 h-8"
                               onClick={() => toggleLike(track)}
                             >
-                              <Heart 
-                                className={cn(
-                                  "w-4 h-4",
-                                  isLiked(track.id) 
-                                    ? "fill-primary text-primary" 
-                                    : "text-muted-foreground"
-                                )} 
-                              />
+                              <Heart className={cn(
+                                "w-4 h-4",
+                                isLiked(track.id) ? "fill-primary text-primary" : "text-muted-foreground"
+                              )} />
                             </Button>
                             
                             <DropdownMenu>
@@ -238,7 +244,7 @@ export function SearchView({ initialQuery = '' }: SearchViewProps) {
                                   <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-48">
+                              <DropdownMenuContent align="end" className="w-52">
                                 <DropdownMenuItem onClick={() => addToQueue(track)}>
                                   <ListPlus className="w-4 h-4 mr-2" />
                                   Sıraya Ekle
@@ -247,24 +253,47 @@ export function SearchView({ initialQuery = '' }: SearchViewProps) {
                                   <Heart className="w-4 h-4 mr-2" />
                                   {isLiked(track.id) ? 'Beğeniyi Kaldır' : 'Beğen'}
                                 </DropdownMenuItem>
-                                {playlists.length > 0 && (
-                                  <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger>
-                                      <Plus className="w-4 h-4 mr-2" />
-                                      Listeye Ekle
-                                    </DropdownMenuSubTrigger>
-                                    <DropdownMenuSubContent>
-                                      {playlists.map((playlist) => (
-                                        <DropdownMenuItem
-                                          key={playlist.id}
-                                          onClick={() => addToPlaylist(playlist.id, track)}
-                                        >
-                                          {playlist.name}
-                                        </DropdownMenuItem>
-                                      ))}
-                                    </DropdownMenuSubContent>
-                                  </DropdownMenuSub>
-                                )}
+
+                                {/* ✅ DÜZELTİLDİ: playlists boş olsa da submenu gösteriliyor */}
+                                <DropdownMenuSub>
+                                  <DropdownMenuSubTrigger>
+                                    <Plus className="w-4 h-4 mr-2" />
+                                    Listeye Ekle
+                                  </DropdownMenuSubTrigger>
+                                  <DropdownMenuSubContent className="w-52">
+                                    {playlists.length === 0 ? (
+                                      // Playlist yoksa bilgi mesajı göster
+                                      <div className="flex flex-col items-center gap-1 py-3 px-2 text-center">
+                                        <Music2 className="w-5 h-5 text-muted-foreground mb-1" />
+                                        <p className="text-xs text-muted-foreground">
+                                          Henüz çalma listen yok.
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                          Sol panelden liste oluşturabilirsin.
+                                        </p>
+                                      </div>
+                                    ) : (
+                                      playlists.map((playlist) => {
+                                        const alreadyIn = playlist.tracks.some((t) => t.id === track.id)
+                                        return (
+                                          <DropdownMenuItem
+                                            key={playlist.id}
+                                            onClick={() => !alreadyIn && handleAddToPlaylist(playlist.id, track, playlist.name)}
+                                            disabled={alreadyIn}
+                                            className={cn(alreadyIn && "opacity-50 cursor-default")}
+                                          >
+                                            <Music2 className="w-4 h-4 mr-2 text-muted-foreground" />
+                                            <span className="truncate">{playlist.name}</span>
+                                            {alreadyIn && (
+                                              <span className="ml-auto text-xs text-muted-foreground">✓</span>
+                                            )}
+                                          </DropdownMenuItem>
+                                        )
+                                      })
+                                    )}
+                                  </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
