@@ -75,10 +75,10 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <Label htmlFor="dark-mode" className="text-foreground font-medium">
-                    Siyah Tema
+                    Koyu Tema
                   </Label>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {isDark ? 'Siyah tema aktif' : 'Beyaz tema aktif'}
+                    {isDark ? 'Koyu tema aktif' : 'Açık tema aktif'}
                   </p>
                 </div>
                 <Switch 
