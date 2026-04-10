@@ -29,6 +29,8 @@ interface MusicPlayerState {
   recentlyPlayed: Track[]
   playlists: Playlist[]
   isLoaded: boolean
+  // ✅ YENİ: Döngü (repeat) state'i
+  isRepeat: boolean
 
   loadUserData: () => Promise<void>
   setCurrentTrack: (track: Track) => void
@@ -45,9 +47,12 @@ interface MusicPlayerState {
   isLiked: (id: string) => boolean
   addToRecentlyPlayed: (track: Track) => void
   createPlaylist: (name: string) => Promise<void>
+  deletePlaylist: (playlistId: string) => Promise<void>
   setPlaylists: (playlists: Playlist[]) => void
   addToPlaylist: (playlistId: string, track: Track) => Promise<void>
   removeFromPlaylist: (playlistId: string, trackId: string) => Promise<void>
+  // ✅ YENİ: Döngü toggle fonksiyonu
+  toggleRepeat: () => void
 }
 
 // tracks alanının her zaman dizi olmasını garantile
@@ -67,6 +72,8 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
   recentlyPlayed: [],
   playlists: [],
   isLoaded: false,
+  // ✅ YENİ: Başlangıçta döngü kapalı
+  isRepeat: false,
 
   loadUserData: async () => {
     const userId = await getUserId()
@@ -129,8 +136,14 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
   setProgress: (progress) => set({ progress }),
   setDuration: (duration) => set({ duration }),
 
+  // ✅ DÜZELTİLDİ: isRepeat açıksa mevcut şarkıyı sıfırdan başlat
   nextTrack: () => {
-    const { queue, currentIndex } = get()
+    const { queue, currentIndex, isRepeat, currentTrack } = get()
+    if (isRepeat && currentTrack) {
+      // Döngü açıksa aynı şarkıyı baştan başlat
+      set({ progress: 0, isPlaying: true })
+      return
+    }
     if (queue.length > 0 && currentIndex < queue.length - 1) {
       const nextIndex = currentIndex + 1
       const next = queue[nextIndex]
@@ -150,6 +163,9 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
 
   addToQueue: (track) => set((s) => ({ queue: [...s.queue, track] })),
   clearQueue: () => set({ queue: [], currentIndex: 0 }),
+
+  // ✅ YENİ: Döngüyü aç/kapat
+  toggleRepeat: () => set((s) => ({ isRepeat: !s.isRepeat })),
 
   toggleLike: async (track) => {
     const userId = await getUserId()
@@ -213,6 +229,29 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
     }
   },
 
+  // ✅ YENİ: Çalma listesi silme
+  deletePlaylist: async (playlistId) => {
+    const userId = await getUserId()
+    if (!userId) return
+
+    // Önce UI'dan kaldır (optimistic)
+    const { playlists } = get()
+    set({ playlists: playlists.filter((p) => p.id !== playlistId) })
+
+    // Supabase'den sil
+    const { error } = await supabase
+      .from('playlists')
+      .delete()
+      .eq('id', playlistId)
+      .eq('user_id', userId)
+
+    if (error) {
+      console.error('deletePlaylist Supabase hatası:', error)
+      // Hata olursa geri al
+      set({ playlists })
+    }
+  },
+
   setPlaylists: (playlists) => set({ playlists }),
 
   addToPlaylist: async (playlistId, track) => {
@@ -223,22 +262,18 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
       return
     }
 
-    // ✅ tracks her zaman dizi olsun
     const currentTracks = safeTracks(playlist.tracks)
 
-    // Aynı şarkı zaten varsa ekleme
     if (currentTracks.some((t) => t.id === track.id)) return
 
     const newTracks = [...currentTracks, track]
 
-    // Önce UI'ı güncelle (optimistic)
     set({
       playlists: playlists.map((p) =>
         p.id === playlistId ? { ...p, tracks: newTracks } : p
       ),
     })
 
-    // Supabase'e kaydet
     const { error } = await supabase
       .from('playlists')
       .update({ tracks: newTracks })
@@ -246,7 +281,6 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
 
     if (error) {
       console.error('addToPlaylist Supabase hatası:', error)
-      // Hata olursa geri al
       set({
         playlists: playlists.map((p) =>
           p.id === playlistId ? { ...p, tracks: currentTracks } : p
@@ -263,14 +297,12 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
     const currentTracks = safeTracks(playlist.tracks)
     const newTracks = currentTracks.filter((t) => t.id !== trackId)
 
-    // Önce UI'ı güncelle (optimistic)
     set({
       playlists: playlists.map((p) =>
         p.id === playlistId ? { ...p, tracks: newTracks } : p
       ),
     })
 
-    // Supabase'e kaydet
     const { error } = await supabase
       .from('playlists')
       .update({ tracks: newTracks })

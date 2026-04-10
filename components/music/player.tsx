@@ -101,17 +101,21 @@ export function Player() {
     togglePlay, setVolume, setProgress, setDuration,
     nextTrack, previousTrack, toggleLike, isLiked, queue,
     addToRecentlyPlayed,
+    // ✅ DÜZELTİLDİ: local useState yerine hook'taki global state kullanılıyor
+    isRepeat, toggleRepeat,
   } = useMusicPlayer()
 
   const playerRef = useRef<YT.Player | null>(null)
   const [isYTReady, setIsYTReady] = useState(false)
   const [isPlayerReady, setIsPlayerReady] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
-  const [isRepeat, setIsRepeat] = useState(false)
   const [isShuffle, setIsShuffle] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const previousVolume = useRef(volume)
+  // ✅ DÜZELTİLDİ: isRepeat'i ref olarak tut — YouTube closure trap'ini önler
+  const isRepeatRef = useRef(isRepeat)
+  useEffect(() => { isRepeatRef.current = isRepeat }, [isRepeat])
 
   useEffect(() => {
     if (window.YT) { setIsYTReady(true); return }
@@ -141,8 +145,13 @@ export function Player() {
         },
         onStateChange: (event: YT.OnStateChangeEvent) => {
           if (event.data === window.YT.PlayerState.ENDED) {
-            if (isRepeat) { playerRef.current?.seekTo(0, true); playerRef.current?.playVideo() }
-            else nextTrack()
+            // ✅ DÜZELTİLDİ: ref üzerinden okuyunca her zaman güncel değeri görür
+            if (isRepeatRef.current) {
+              playerRef.current?.seekTo(0, true)
+              playerRef.current?.playVideo()
+            } else {
+              nextTrack()
+            }
           }
           if (event.data === window.YT.PlayerState.PLAYING) {
             setDuration(playerRef.current?.getDuration() || 0)
@@ -210,7 +219,7 @@ export function Player() {
               <ChevronDown className="w-6 h-6" />
             </Button>
             <span className="text-sm font-medium text-muted-foreground">Şu An Çalıyor</span>
-            {/* ✅ Sağ üst: + butonu */}
+            {/* Sağ üst: + butonu */}
             <AddToPlaylistBtn size="sm" />
           </div>
 
@@ -255,7 +264,8 @@ export function Player() {
                 <Button variant="ghost" size="icon" className="w-12 h-12" onClick={nextTrack} disabled={queue.length === 0}>
                   <SkipForward className="w-6 h-6" />
                 </Button>
-                <Button variant="ghost" size="icon" className={cn('w-10 h-10', isRepeat && 'text-primary')} onClick={() => setIsRepeat(!isRepeat)}>
+                {/* ✅ DÜZELTİLDİ: toggleRepeat hook fonksiyonu kullanılıyor */}
+                <Button variant="ghost" size="icon" className={cn('w-10 h-10', isRepeat && 'text-primary')} onClick={toggleRepeat}>
                   <Repeat className="w-5 h-5" />
                 </Button>
               </div>
@@ -297,7 +307,7 @@ export function Player() {
                 <Button variant="ghost" size="icon" className="w-8 h-8 flex-shrink-0" onClick={() => toggleLike(currentTrack)}>
                   <Heart className={cn('w-4 h-4', isLiked(currentTrack.id) ? 'fill-primary text-primary' : 'text-muted-foreground')} />
                 </Button>
-                {/* ✅ Desktop bar: + butonu */}
+                {/* Desktop bar: + butonu */}
                 <AddToPlaylistBtn size="sm" />
               </div>
 
@@ -316,7 +326,8 @@ export function Player() {
                   <Button variant="ghost" size="icon" className="w-8 h-8" onClick={nextTrack} disabled={queue.length === 0}>
                     <SkipForward className="w-5 h-5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className={cn('w-8 h-8', isRepeat && 'text-primary')} onClick={() => setIsRepeat(!isRepeat)}>
+                  {/* ✅ DÜZELTİLDİ: toggleRepeat hook fonksiyonu kullanılıyor */}
+                  <Button variant="ghost" size="icon" className={cn('w-8 h-8', isRepeat && 'text-primary')} onClick={toggleRepeat}>
                     <Repeat className="w-4 h-4" />
                   </Button>
                 </div>
@@ -355,7 +366,7 @@ export function Player() {
                 <Button variant="ghost" size="icon" className="w-9 h-9" onClick={() => toggleLike(currentTrack)}>
                   <Heart className={cn('w-4 h-4', isLiked(currentTrack.id) ? 'fill-primary text-primary' : 'text-muted-foreground')} />
                 </Button>
-                {/* ✅ Mobile mini bar: + butonu */}
+                {/* Mobile mini bar: + butonu */}
                 <AddToPlaylistBtn size="sm" />
                 <Button variant="ghost" size="icon" className="w-9 h-9" onClick={togglePlay}>
                   {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}

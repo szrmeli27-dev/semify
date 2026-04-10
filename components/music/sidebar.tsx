@@ -12,25 +12,35 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Home, Search, Library, Plus, Heart, Clock, ListMusic, Music2 } from 'lucide-react'
+import { Home, Search, Library, Plus, Heart, Clock, ListMusic, Music2, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { UserProfile } from './user-profile'
 
 export function Sidebar({ activeTab, onTabChange, selectedPlaylistId, onPlaylistSelect }: any) {
-  // ✅ DÜZELTİLDİ: setPlaylists kaldırıldı, createPlaylist hook'u kullanılıyor
-  const { playlists, likedSongs, recentlyPlayed, createPlaylist } = useMusicPlayer()
+  const { playlists, likedSongs, recentlyPlayed, createPlaylist, deletePlaylist } = useMusicPlayer()
   const [newPlaylistName, setNewPlaylistName] = useState('')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
+  // ✅ YENİ: Hangi playlist'in silinme onayı beklediğini takip et
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const handleCreatePlaylist = async () => {
     if (!newPlaylistName.trim() || isCreating) return
     setIsCreating(true)
-    // createPlaylist hem Supabase'e yazar hem state'i günceller (tracks: [] ile)
     await createPlaylist(newPlaylistName.trim())
     setNewPlaylistName('')
     setIsDialogOpen(false)
     setIsCreating(false)
+  }
+
+  // ✅ YENİ: Silme işlemi
+  const handleDeletePlaylist = async (playlistId: string) => {
+    await deletePlaylist(playlistId)
+    setConfirmDeleteId(null)
+    // Eğer silinen playlist açıksa ana sayfaya dön
+    if (selectedPlaylistId === playlistId) {
+      onTabChange('home')
+    }
   }
 
   return (
@@ -173,29 +183,70 @@ export function Sidebar({ activeTab, onTabChange, selectedPlaylistId, onPlaylist
                   Çalma Listelerim
                 </p>
                 {playlists.map((playlist: any) => (
-                  <Button
-                    key={playlist.id}
-                    variant="ghost"
-                    className={cn(
-                      'w-full justify-start gap-3 h-10 px-2 font-normal',
-                      selectedPlaylistId === playlist.id && activeTab === 'playlist' &&
-                        'bg-sidebar-accent text-sidebar-accent-foreground'
+                  <div key={playlist.id} className="group relative flex items-center">
+                    {/* ✅ YENİ: Silme onay modu */}
+                    {confirmDeleteId === playlist.id ? (
+                      <div className="w-full flex items-center gap-1 px-2 py-1 rounded-md bg-destructive/10 border border-destructive/30">
+                        <span className="text-xs text-destructive flex-1 truncate">
+                          &ldquo;{playlist.name}&rdquo; silinsin mi?
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs text-destructive hover:bg-destructive hover:text-destructive-foreground shrink-0"
+                          onClick={() => handleDeletePlaylist(playlist.id)}
+                        >
+                          Evet
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs shrink-0"
+                          onClick={() => setConfirmDeleteId(null)}
+                        >
+                          Hayır
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <Button
+                          variant="ghost"
+                          className={cn(
+                            'flex-1 justify-start gap-3 h-10 px-2 font-normal pr-8',
+                            selectedPlaylistId === playlist.id && activeTab === 'playlist' &&
+                              'bg-sidebar-accent text-sidebar-accent-foreground'
+                          )}
+                          onClick={() => {
+                            onPlaylistSelect(playlist.id)
+                            onTabChange('playlist')
+                          }}
+                        >
+                          <div className="w-8 h-8 rounded bg-gradient-to-br from-orange-500 to-rose-500 flex items-center justify-center shrink-0">
+                            <ListMusic className="w-4 h-4 text-white" />
+                          </div>
+                          <div className="flex flex-col items-start overflow-hidden">
+                            <span className="text-sm truncate w-full">{playlist.name}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {Array.isArray(playlist.tracks) ? playlist.tracks.length : 0} şarkı
+                            </span>
+                          </div>
+                        </Button>
+                        {/* ✅ YENİ: Silme butonu — hover'da görünür */}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-0 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title="Çalma listesini sil"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setConfirmDeleteId(playlist.id)
+                          }}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </>
                     )}
-                    onClick={() => {
-                      onPlaylistSelect(playlist.id)
-                      onTabChange('playlist')
-                    }}
-                  >
-                    <div className="w-8 h-8 rounded bg-gradient-to-br from-orange-500 to-rose-500 flex items-center justify-center shrink-0">
-                      <ListMusic className="w-4 h-4 text-white" />
-                    </div>
-                    <div className="flex flex-col items-start overflow-hidden">
-                      <span className="text-sm truncate w-full">{playlist.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {Array.isArray(playlist.tracks) ? playlist.tracks.length : 0} şarkı
-                      </span>
-                    </div>
-                  </Button>
+                  </div>
                 ))}
               </div>
             )}
