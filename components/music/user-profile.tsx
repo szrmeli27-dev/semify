@@ -21,20 +21,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { LogOut, Edit3, Loader2, ChevronDown, Moon, Sun, Monitor } from "lucide-react"
+import { LogOut, Edit3, Loader2, ChevronDown, Sun, Monitor } from "lucide-react"
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 import { cn } from "@/lib/utils"
 
 // ── Tema tipleri ──────────────────────────────────────────────
-type ThemeMode = 'black' | 'dark' | 'light'
+type ThemeMode = 'dark' | 'light'
 
 const THEMES: { id: ThemeMode; label: string; icon: React.ReactNode; description: string }[] = [
-  {
-    id: 'black',
-    label: 'Siyah',
-    icon: <Moon className="w-4 h-4" />,
-    description: 'Tam siyah arka plan',
-  },
   {
     id: 'dark',
     label: 'Koyu',
@@ -52,22 +46,10 @@ const THEMES: { id: ThemeMode; label: string; icon: React.ReactNode; description
 function applyTheme(theme: ThemeMode) {
   const root = document.documentElement
 
-  // Tüm tema class'larını temizle
-  root.classList.remove('theme-black', 'theme-dark', 'theme-light', 'dark', 'light')
+  root.classList.remove('theme-dark', 'theme-light', 'dark', 'light')
 
-  if (theme === 'black') {
-    root.classList.add('dark', 'theme-black')
-    // Tam siyah CSS değişkenleri
-    root.style.setProperty('--background', '0 0% 0%')
-    root.style.setProperty('--card', '0 0% 4%')
-    root.style.setProperty('--sidebar', '0 0% 3%')
-    root.style.setProperty('--sidebar-border', '0 0% 10%')
-    root.style.setProperty('--border', '0 0% 12%')
-    root.style.setProperty('--secondary', '0 0% 8%')
-    root.style.setProperty('--muted', '0 0% 10%')
-  } else if (theme === 'dark') {
+  if (theme === 'dark') {
     root.classList.add('dark', 'theme-dark')
-    // Tailwind dark mode varsayılanı — custom değişkenleri temizle
     root.style.removeProperty('--background')
     root.style.removeProperty('--card')
     root.style.removeProperty('--sidebar')
@@ -90,12 +72,13 @@ function applyTheme(theme: ThemeMode) {
 }
 
 export function useTheme() {
-  const [theme, setThemeState] = useState<ThemeMode>('black')
+  const [theme, setThemeState] = useState<ThemeMode>('dark')
 
   useEffect(() => {
-    const saved = (localStorage.getItem('semify-theme') as ThemeMode) || 'black'
-    setThemeState(saved)
-    applyTheme(saved)
+    const saved = localStorage.getItem('semify-theme') as ThemeMode
+    const validTheme: ThemeMode = (saved === 'dark' || saved === 'light') ? saved : 'dark'
+    setThemeState(validTheme)
+    applyTheme(validTheme)
   }, [])
 
   const setTheme = (t: ThemeMode) => {
