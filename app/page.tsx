@@ -76,7 +76,12 @@ export default function MusicApp() {
 
       {/* Mobile Bottom Navigation */}
       <div className="md:hidden">
-        <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />
+        <MobileNav
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          selectedPlaylistId={selectedPlaylistId}
+          onPlaylistSelect={setSelectedPlaylistId}
+        />
       </div>
 
       {/* Player */}
