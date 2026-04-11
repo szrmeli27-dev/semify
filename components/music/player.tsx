@@ -132,10 +132,14 @@ export function Player() {
     stopInterval()
     setProgress(0)
 
-    // Player zaten varsa sadece videoyu değiştir (daha hızlı)
+    // ✅ DÜZELTİLDİ: Player zaten varsa loadVideoById + playVideo birlikte çağır
+    // Android Chrome loadVideoById'yi otomatik başlatmıyor, playVideo() şart
     if (playerRef.current) {
       try {
         playerRef.current.loadVideoById(currentTrack.id)
+        playerRef.current.playVideo()
+        playerRef.current.setVolume(isMutedRef.current ? 0 : volumeRef.current * 100)
+        startInterval()
         return
       } catch {
         playerRef.current = null
@@ -168,17 +172,25 @@ export function Player() {
       events: {
         onReady: (e: YT.PlayerEvent) => {
           e.target.setVolume(isMutedRef.current ? 0 : volumeRef.current * 100)
-          e.target.playVideo()  // autoplay bazen çalışmaz, manuel tetikle
-          setDuration(e.target.getDuration() || 0)
+          e.target.playVideo()
+          // ✅ DÜZELTİLDİ: getDuration() onReady'de 0 dönebilir (video henüz yüklenmemiş)
+          // duration'ı PLAYING state'inde alıyoruz, burada sadece interval başlat
           startInterval()
         },
         onStateChange: (e: YT.OnStateChangeEvent) => {
           const S = window.YT.PlayerState
           if (e.data === S.PLAYING) {
-            setDuration(playerRef.current?.getDuration() || 0)
+            // ✅ DÜZELTİLDİ: Duration'ı burada al, artık güvenilir
+            const dur = playerRef.current?.getDuration() || 0
+            if (dur > 0) setDuration(dur)
             startInterval()
           }
           if (e.data === S.PAUSED) stopInterval()
+          if (e.data === S.BUFFERING) {
+            // ✅ YENİ: Buffering sırasında da duration güncellenebilir
+            const dur = playerRef.current?.getDuration() || 0
+            if (dur > 0) setDuration(dur)
+          }
           if (e.data === S.ENDED) {
             stopInterval()
             if (isRepeatRef.current) {
