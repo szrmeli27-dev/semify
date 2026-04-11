@@ -88,14 +88,17 @@ export function Player() {
   const [isExpanded, setIsExpanded] = useState(false)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const previousVolume = useRef(volume)
+  const shouldPlayRef = useRef(true) // Çalması gerekiyor mu?
 
-  // Closure trap'i önlemek için ref'ler
+  // Closure trap ref'leri
   const isRepeatRef = useRef(isRepeat)
   const volumeRef = useRef(volume)
   const isMutedRef = useRef(isMuted)
+  const isPlayingRef = useRef(isPlaying)
   useEffect(() => { isRepeatRef.current = isRepeat }, [isRepeat])
   useEffect(() => { volumeRef.current = volume }, [volume])
   useEffect(() => { isMutedRef.current = isMuted }, [isMuted])
+  useEffect(() => { isPlayingRef.current = isPlaying }, [isPlaying])
 
   // ── YouTube API yükle ──
   useEffect(() => {
@@ -108,15 +111,26 @@ export function Player() {
     }
   }, [])
 
-  // ── Progress interval ──
+  // ── Interval: progress takip + Android için zorla play ──
   function startInterval() {
     if (intervalRef.current) clearInterval(intervalRef.current)
     intervalRef.current = setInterval(() => {
       try {
-        const t = playerRef.current?.getCurrentTime?.() ?? 0
-        const d = playerRef.current?.getDuration?.() ?? 0
-        setProgress(t)
+        const player = playerRef.current
+        if (!player) return
+
+        const state = player.getPlayerState?.()
+        const d = player.getDuration?.() ?? 0
+        const t = player.getCurrentTime?.() ?? 0
+
         if (d > 0) setDuration(d)
+        setProgress(t)
+
+        // ✅ ANDROID KRİTİK: Player PAUSED veya CUED takılmışsa ve çalması gerekiyorsa zorla oynat
+        // State: -1=unstarted, 1=playing, 2=paused, 3=buffering, 5=cued
+        if (shouldPlayRef.current && (state === 2 || state === 5 || state === -1)) {
+          player.playVideo?.()
+        }
       } catch {}
     }, 1000)
   }
@@ -128,27 +142,24 @@ export function Player() {
     }
   }
 
-  // ── Şarkı değişince ──
+  // ── Şarkı değişince: Player'ı her seferinde DESTROY edip yeniden oluştur ──
+  // Bu sayede her seferinde autoplay:1 ile taze player başlar.
+  // Android, yeni player oluşturma sırasındaki autoplay'i kabul eder.
   useEffect(() => {
     if (!isYTReady || !currentTrack) return
+
     stopInterval()
     setProgress(0)
     setDuration(0)
+    shouldPlayRef.current = true
 
-    // ✅ Player zaten varsa: cueVideoById ile yükle, CUED event'inde oynat
-    // loadVideoById yerine cueVideoById kullanıyoruz — Android'de video
-    // tamamen hazır olmadan playVideo çağrılmasını engeller
+    // Eski player'ı tamamen yok et
     if (playerRef.current) {
-      try {
-        playerRef.current.cueVideoById(currentTrack.id)
-        // CUED state'i onStateChange'de yakalanıp playVideo çağrılacak
-        return
-      } catch {
-        playerRef.current = null
-      }
+      try { playerRef.current.destroy() } catch {}
+      playerRef.current = null
     }
 
-    // ── İlk kez player oluştur ──
+    // Container'ı temizle
     const container = document.getElementById('yt-container')
     if (!container) return
     container.innerHTML = ''
@@ -156,6 +167,7 @@ export function Player() {
     div.id = 'yt-player'
     container.appendChild(div)
 
+    // Yeni player oluştur
     playerRef.current = new window.YT.Player('yt-player', {
       videoId: currentTrack.id,
       width: '1',
@@ -168,33 +180,33 @@ export function Player() {
         fs: 0,
         modestbranding: 1,
         rel: 0,
-        playsinline: 1,
+        playsinline: 1,        // iOS için şart
         origin: window.location.origin,
       },
       events: {
         onReady: (e: YT.PlayerEvent) => {
           e.target.setVolume(isMutedRef.current ? 0 : volumeRef.current * 100)
           e.target.playVideo()
+          // interval başlat — içinde zaten zorla play var
           startInterval()
         },
         onStateChange: (e: YT.OnStateChangeEvent) => {
           const S = window.YT.PlayerState
-          // ✅ CUED: video hazır, şimdi oynat (Android'de en güvenli yöntem)
-          if (e.data === S.CUED) {
-            playerRef.current?.setVolume(isMutedRef.current ? 0 : volumeRef.current * 100)
-            playerRef.current?.playVideo()
-          }
           if (e.data === S.PLAYING) {
+            // Gerçekten çalıyor, interval devam etsin
             startInterval()
           }
           if (e.data === S.PAUSED) {
-            stopInterval()
+            // Kullanıcı duraklattıysa interval'i durdur
+            if (!shouldPlayRef.current) stopInterval()
           }
           if (e.data === S.ENDED) {
             stopInterval()
+            shouldPlayRef.current = false
             if (isRepeatRef.current) {
               playerRef.current?.seekTo(0, true)
               playerRef.current?.playVideo()
+              shouldPlayRef.current = true
             } else {
               nextTrack()
             }
@@ -202,6 +214,7 @@ export function Player() {
         },
         onError: () => {
           stopInterval()
+          shouldPlayRef.current = false
           nextTrack()
         },
       },
@@ -213,9 +226,11 @@ export function Player() {
     if (!playerRef.current) return
     try {
       if (isPlaying) {
+        shouldPlayRef.current = true
         playerRef.current.playVideo?.()
         startInterval()
       } else {
+        shouldPlayRef.current = false
         playerRef.current.pauseVideo?.()
         stopInterval()
       }
@@ -256,10 +271,7 @@ export function Player() {
   return (
     <>
       {/*
-        ✅ KRİTİK ANDROİD DÜZELTMESİ:
-        ESKİ: zIndex: -1  ← Android bu iframe'deki medyayı askıya alıyor!
-        YENİ: translateX(-9999px) ← Tarayıcı iframe'i "aktif ve görünür" sayar,
-        medyayı durdurmaz. opacity:0 + zIndex:-1 kombinasyonu Android'i kandırmıyor.
+        ✅ translateX ile ekran dışı — zIndex:-1 KULLANMA (Android medyayı askıya alır)
       */}
       <div
         id="yt-container"
