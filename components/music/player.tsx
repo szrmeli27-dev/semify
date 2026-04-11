@@ -108,13 +108,15 @@ export function Player() {
     }
   }, [])
 
-  // ── Progress interval yardımcısı ──
+  // ── Progress interval ──
   function startInterval() {
     if (intervalRef.current) clearInterval(intervalRef.current)
     intervalRef.current = setInterval(() => {
       try {
         const t = playerRef.current?.getCurrentTime?.() ?? 0
+        const d = playerRef.current?.getDuration?.() ?? 0
         setProgress(t)
+        if (d > 0) setDuration(d)
       } catch {}
     }, 1000)
   }
@@ -131,22 +133,22 @@ export function Player() {
     if (!isYTReady || !currentTrack) return
     stopInterval()
     setProgress(0)
+    setDuration(0)
 
-    // ✅ DÜZELTİLDİ: Player zaten varsa loadVideoById + playVideo birlikte çağır
-    // Android Chrome loadVideoById'yi otomatik başlatmıyor, playVideo() şart
+    // ✅ Player zaten varsa: cueVideoById ile yükle, CUED event'inde oynat
+    // loadVideoById yerine cueVideoById kullanıyoruz — Android'de video
+    // tamamen hazır olmadan playVideo çağrılmasını engeller
     if (playerRef.current) {
       try {
-        playerRef.current.loadVideoById(currentTrack.id)
-        playerRef.current.playVideo()
-        playerRef.current.setVolume(isMutedRef.current ? 0 : volumeRef.current * 100)
-        startInterval()
+        playerRef.current.cueVideoById(currentTrack.id)
+        // CUED state'i onStateChange'de yakalanıp playVideo çağrılacak
         return
       } catch {
         playerRef.current = null
       }
     }
 
-    // İlk kez player oluştur
+    // ── İlk kez player oluştur ──
     const container = document.getElementById('yt-container')
     if (!container) return
     container.innerHTML = ''
@@ -166,30 +168,27 @@ export function Player() {
         fs: 0,
         modestbranding: 1,
         rel: 0,
-        playsinline: 1,        // iOS Safari kritik
+        playsinline: 1,
         origin: window.location.origin,
       },
       events: {
         onReady: (e: YT.PlayerEvent) => {
           e.target.setVolume(isMutedRef.current ? 0 : volumeRef.current * 100)
           e.target.playVideo()
-          // ✅ DÜZELTİLDİ: getDuration() onReady'de 0 dönebilir (video henüz yüklenmemiş)
-          // duration'ı PLAYING state'inde alıyoruz, burada sadece interval başlat
           startInterval()
         },
         onStateChange: (e: YT.OnStateChangeEvent) => {
           const S = window.YT.PlayerState
+          // ✅ CUED: video hazır, şimdi oynat (Android'de en güvenli yöntem)
+          if (e.data === S.CUED) {
+            playerRef.current?.setVolume(isMutedRef.current ? 0 : volumeRef.current * 100)
+            playerRef.current?.playVideo()
+          }
           if (e.data === S.PLAYING) {
-            // ✅ DÜZELTİLDİ: Duration'ı burada al, artık güvenilir
-            const dur = playerRef.current?.getDuration() || 0
-            if (dur > 0) setDuration(dur)
             startInterval()
           }
-          if (e.data === S.PAUSED) stopInterval()
-          if (e.data === S.BUFFERING) {
-            // ✅ YENİ: Buffering sırasında da duration güncellenebilir
-            const dur = playerRef.current?.getDuration() || 0
-            if (dur > 0) setDuration(dur)
+          if (e.data === S.PAUSED) {
+            stopInterval()
           }
           if (e.data === S.ENDED) {
             stopInterval()
@@ -257,9 +256,10 @@ export function Player() {
   return (
     <>
       {/*
-        KRİTİK: display:none veya hidden KULLANMA.
-        Mobil tarayıcılar DOM'dan gizli elementlerdeki videoyu çalmayı engelliyor.
-        1x1px + opacity:0 ile görünmez ama aktif tutuyoruz.
+        ✅ KRİTİK ANDROİD DÜZELTMESİ:
+        ESKİ: zIndex: -1  ← Android bu iframe'deki medyayı askıya alıyor!
+        YENİ: translateX(-9999px) ← Tarayıcı iframe'i "aktif ve görünür" sayar,
+        medyayı durdurmaz. opacity:0 + zIndex:-1 kombinasyonu Android'i kandırmıyor.
       */}
       <div
         id="yt-container"
@@ -267,11 +267,10 @@ export function Player() {
           position: 'fixed',
           width: 1,
           height: 1,
-          bottom: 0,
+          top: 0,
           left: 0,
-          opacity: 0,
+          transform: 'translateX(-9999px)',
           pointerEvents: 'none',
-          zIndex: -1,
         }}
       />
 
