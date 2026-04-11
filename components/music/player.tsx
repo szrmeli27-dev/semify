@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useMusicPlayer } from '@/hooks/use-music-player'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
@@ -101,11 +101,11 @@ export function Player() {
     togglePlay, setVolume, setProgress, setDuration,
     nextTrack, previousTrack, toggleLike, isLiked, queue,
     addToRecentlyPlayed,
-    // ✅ DÜZELTİLDİ: local useState yerine hook'taki global state kullanılıyor
     isRepeat, toggleRepeat,
   } = useMusicPlayer()
 
   const playerRef = useRef<YT.Player | null>(null)
+  const playerContainerRef = useRef<HTMLDivElement>(null)
   const [isYTReady, setIsYTReady] = useState(false)
   const [isPlayerReady, setIsPlayerReady] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
@@ -113,39 +113,95 @@ export function Player() {
   const [isExpanded, setIsExpanded] = useState(false)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const previousVolume = useRef(volume)
-  // ✅ DÜZELTİLDİ: isRepeat'i ref olarak tut — YouTube closure trap'ini önler
   const isRepeatRef = useRef(isRepeat)
+  const pendingTrackId = useRef<string | null>(null)
+  const isCreatingPlayer = useRef(false)
+
   useEffect(() => { isRepeatRef.current = isRepeat }, [isRepeat])
 
+  // YouTube API yükleme
   useEffect(() => {
-    if (window.YT) { setIsYTReady(true); return }
+    if (window.YT?.Player) { setIsYTReady(true); return }
+    if (document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+      // Script zaten eklendi, callback'i bekle
+      window.onYouTubeIframeAPIReady = () => setIsYTReady(true)
+      return
+    }
     const tag = document.createElement('script')
     tag.src = 'https://www.youtube.com/iframe_api'
     document.head.appendChild(tag)
     window.onYouTubeIframeAPIReady = () => setIsYTReady(true)
   }, [])
 
+  // Player oluştur veya şarkı değiştir
   useEffect(() => {
     if (!isYTReady || !currentTrack) return
-    const player = playerRef.current
-    if (player && isPlayerReady && typeof player.loadVideoById === 'function') {
-      try { player.loadVideoById(currentTrack.id) } catch {}
+
+    // Player zaten hazırsa sadece şarkıyı değiştir
+    if (playerRef.current && isPlayerReady) {
+      try {
+        playerRef.current.loadVideoById(currentTrack.id)
+        return
+      } catch {
+        // Player bozulduysa yeniden oluştur
+        playerRef.current = null
+        setIsPlayerReady(false)
+      }
+    }
+
+    // Player oluşturuluyor, tekrar oluşturma
+    if (isCreatingPlayer.current) {
+      pendingTrackId.current = currentTrack.id
       return
     }
+
+    // Container hazır mı kontrol et
+    const container = document.getElementById('youtube-player-container')
+    if (!container) return
+
+    isCreatingPlayer.current = true
     setIsPlayerReady(false)
+
+    // Önceki player'ı temizle
+    if (playerRef.current) {
+      try { playerRef.current.destroy() } catch {}
+      playerRef.current = null
+    }
+    container.innerHTML = '<div id="youtube-player"></div>'
+
     playerRef.current = new window.YT.Player('youtube-player', {
-      height: '0', width: '0', videoId: currentTrack.id,
-      playerVars: { autoplay: 1, controls: 0, disablekb: 1, enablejsapi: 1, fs: 0, modestbranding: 1, rel: 0 },
+      height: '1',
+      width: '1',
+      videoId: currentTrack.id,
+      playerVars: {
+        autoplay: 1,
+        controls: 0,
+        disablekb: 1,
+        enablejsapi: 1,
+        fs: 0,
+        modestbranding: 1,
+        rel: 0,
+        // Mobil için kritik: playsinline=1 olmadan iOS'ta tam ekran açılır
+        playsinline: 1,
+        origin: typeof window !== 'undefined' ? window.location.origin : '',
+      },
       events: {
         onReady: (event: YT.PlayerEvent) => {
           setIsPlayerReady(true)
+          isCreatingPlayer.current = false
           event.target.setVolume(volume * 100)
-          if (isPlaying) event.target.playVideo()
+          // Mobilde autoplay bazen çalışmaz, manuel play çağır
+          event.target.playVideo()
           setDuration(event.target.getDuration())
+
+          // Bekleyen şarkı varsa yükle
+          if (pendingTrackId.current && pendingTrackId.current !== currentTrack.id) {
+            event.target.loadVideoById(pendingTrackId.current)
+            pendingTrackId.current = null
+          }
         },
         onStateChange: (event: YT.OnStateChangeEvent) => {
           if (event.data === window.YT.PlayerState.ENDED) {
-            // ✅ DÜZELTİLDİ: ref üzerinden okuyunca her zaman güncel değeri görür
             if (isRepeatRef.current) {
               playerRef.current?.seekTo(0, true)
               playerRef.current?.playVideo()
@@ -157,10 +213,16 @@ export function Player() {
             setDuration(playerRef.current?.getDuration() || 0)
           }
         },
+        onError: () => {
+          isCreatingPlayer.current = false
+          // Hata durumunda sonraki şarkıya geç
+          nextTrack()
+        }
       },
     })
   }, [isYTReady, currentTrack?.id])
 
+  // Play/Pause senkronizasyonu
   useEffect(() => {
     if (!isPlayerReady || !playerRef.current) return
     try {
@@ -169,28 +231,34 @@ export function Player() {
     } catch {}
   }, [isPlaying, isPlayerReady])
 
+  // Ses seviyesi
   useEffect(() => {
     if (!isPlayerReady || !playerRef.current) return
     try { playerRef.current.setVolume?.(isMuted ? 0 : volume * 100) } catch {}
   }, [volume, isMuted, isPlayerReady])
 
+  // Son dinlenenlere ekle
   useEffect(() => {
     if (currentTrack) addToRecentlyPlayed(currentTrack)
   }, [currentTrack?.id])
 
+  // Progress güncelleme
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current)
-    if (isPlaying && playerRef.current) {
+    if (isPlaying && isPlayerReady && playerRef.current) {
       intervalRef.current = setInterval(() => {
-        setProgress(playerRef.current?.getCurrentTime() || 0)
+        try {
+          const time = playerRef.current?.getCurrentTime() || 0
+          setProgress(time)
+        } catch {}
       }, 1000)
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [isPlaying, setProgress])
+  }, [isPlaying, isPlayerReady, setProgress])
 
   const handleSeek = (value: number[]) => {
     setProgress(value[0])
-    playerRef.current?.seekTo(value[0], true)
+    try { playerRef.current?.seekTo(value[0], true) } catch {}
   }
 
   const handleVolumeChange = (value: number[]) => {
@@ -209,7 +277,28 @@ export function Player() {
 
   return (
     <>
-      <div id="youtube-player" className="hidden" />
+      {/* 
+        ✅ KRİTİK: hidden yerine görünmez ama DOM'da var şekilde tutuyoruz.
+        visibility:hidden + pointer-events:none kullanıyoruz.
+        "display:none" veya "hidden" class, bazı mobil tarayıcılarda
+        YouTube player'ın çalışmasını engelliyor.
+      */}
+      <div
+        id="youtube-player-container"
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          width: '1px',
+          height: '1px',
+          opacity: 0,
+          pointerEvents: 'none',
+          zIndex: -1,
+        }}
+        ref={playerContainerRef}
+      >
+        <div id="youtube-player" />
+      </div>
 
       {/* ── Mobile Expanded Player ── */}
       {isExpanded && (
@@ -219,7 +308,6 @@ export function Player() {
               <ChevronDown className="w-6 h-6" />
             </Button>
             <span className="text-sm font-medium text-muted-foreground">Şu An Çalıyor</span>
-            {/* Sağ üst: + butonu */}
             <AddToPlaylistBtn size="sm" />
           </div>
 
@@ -258,13 +346,16 @@ export function Player() {
                 <Button variant="ghost" size="icon" className="w-12 h-12" onClick={previousTrack}>
                   <SkipBack className="w-6 h-6" />
                 </Button>
-                <Button size="icon" className="w-16 h-16 rounded-full bg-foreground text-background hover:scale-105 transition-transform" onClick={togglePlay}>
+                <Button
+                  size="icon"
+                  className="w-16 h-16 rounded-full bg-foreground text-background hover:scale-105 transition-transform"
+                  onClick={togglePlay}
+                >
                   {isPlaying ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 ml-0.5" />}
                 </Button>
                 <Button variant="ghost" size="icon" className="w-12 h-12" onClick={nextTrack} disabled={queue.length === 0}>
                   <SkipForward className="w-6 h-6" />
                 </Button>
-                {/* ✅ DÜZELTİLDİ: toggleRepeat hook fonksiyonu kullanılıyor */}
                 <Button variant="ghost" size="icon" className={cn('w-10 h-10', isRepeat && 'text-primary')} onClick={toggleRepeat}>
                   <Repeat className="w-5 h-5" />
                 </Button>
@@ -292,8 +383,6 @@ export function Player() {
           <>
             {/* ── Desktop ── */}
             <div className="hidden md:flex items-center justify-between h-20 px-4 max-w-screen-2xl mx-auto">
-
-              {/* Sol: kapak + isim + ❤ + ➕ */}
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <img
                   src={currentTrack.thumbnail}
@@ -307,11 +396,9 @@ export function Player() {
                 <Button variant="ghost" size="icon" className="w-8 h-8 flex-shrink-0" onClick={() => toggleLike(currentTrack)}>
                   <Heart className={cn('w-4 h-4', isLiked(currentTrack.id) ? 'fill-primary text-primary' : 'text-muted-foreground')} />
                 </Button>
-                {/* Desktop bar: + butonu */}
                 <AddToPlaylistBtn size="sm" />
               </div>
 
-              {/* Orta: kontroller */}
               <div className="flex flex-col items-center gap-2 flex-1 max-w-xl">
                 <div className="flex items-center gap-4">
                   <Button variant="ghost" size="icon" className={cn('w-8 h-8', isShuffle && 'text-primary')} onClick={() => setIsShuffle(!isShuffle)}>
@@ -326,7 +413,6 @@ export function Player() {
                   <Button variant="ghost" size="icon" className="w-8 h-8" onClick={nextTrack} disabled={queue.length === 0}>
                     <SkipForward className="w-5 h-5" />
                   </Button>
-                  {/* ✅ DÜZELTİLDİ: toggleRepeat hook fonksiyonu kullanılıyor */}
                   <Button variant="ghost" size="icon" className={cn('w-8 h-8', isRepeat && 'text-primary')} onClick={toggleRepeat}>
                     <Repeat className="w-4 h-4" />
                   </Button>
@@ -338,7 +424,6 @@ export function Player() {
                 </div>
               </div>
 
-              {/* Sağ: ses */}
               <div className="flex items-center gap-2 flex-1 justify-end">
                 <Button variant="ghost" size="icon" className="w-8 h-8">
                   <ListMusic className="w-5 h-5 text-muted-foreground" />
@@ -366,7 +451,6 @@ export function Player() {
                 <Button variant="ghost" size="icon" className="w-9 h-9" onClick={() => toggleLike(currentTrack)}>
                   <Heart className={cn('w-4 h-4', isLiked(currentTrack.id) ? 'fill-primary text-primary' : 'text-muted-foreground')} />
                 </Button>
-                {/* Mobile mini bar: + butonu */}
                 <AddToPlaylistBtn size="sm" />
                 <Button variant="ghost" size="icon" className="w-9 h-9" onClick={togglePlay}>
                   {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}

@@ -39,7 +39,6 @@ interface LibraryViewProps {
   playlistId?: string
 }
 
-// Her track için ayrı "+" popover state'i
 function AddToPlaylistButton({ track }: { track: Track }) {
   const { playlists, addToPlaylist } = useMusicPlayer()
   const [open, setOpen] = useState(false)
@@ -63,17 +62,15 @@ function AddToPlaylistButton({ track }: { track: Track }) {
         <Button
           variant="ghost"
           size="icon"
-          className="w-8 h-8 flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-secondary"
+          // Mobilde her zaman görünür, masaüstünde hover'da
+          className="w-8 h-8 flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-secondary opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
           title="Çalma listesine ekle"
+          onClick={(e) => e.stopPropagation()}
         >
           <Plus className="w-4 h-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        side="left"
-        className="w-52 p-1"
-      >
+      <PopoverContent align="end" side="left" className="w-52 p-1">
         <p className="text-xs text-muted-foreground px-2 py-1 mb-1 font-medium">
           Çalma listesi seç
         </p>
@@ -184,9 +181,9 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
         <div className="pb-32">
           {/* Header */}
           <div className={cn("p-6 pb-8 bg-gradient-to-b", content.gradient)}>
-            <div className="flex items-end gap-6 pt-12">
-              {/* Cover Art */}
-              <div className="w-48 h-48 rounded-lg shadow-2xl overflow-hidden flex-shrink-0">
+            <div className="flex items-end gap-4 pt-8 md:pt-12">
+              {/* Cover Art — mobilde küçük */}
+              <div className="w-28 h-28 md:w-48 md:h-48 rounded-lg shadow-2xl overflow-hidden flex-shrink-0">
                 {content.tracks[0] ? (
                   <div className="grid grid-cols-2 grid-rows-2 w-full h-full">
                     {content.tracks.slice(0, 4).map((track, i) => (
@@ -205,20 +202,20 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
                   </div>
                 ) : (
                   <div className="w-full h-full bg-secondary/50 flex items-center justify-center">
-                    {IconComponent && <IconComponent className="w-16 h-16 text-white/50" />}
+                    {IconComponent && <IconComponent className="w-10 h-10 md:w-16 md:h-16 text-white/50" />}
                   </div>
                 )}
               </div>
 
               {/* Info */}
-              <div className="flex-1">
-                <p className="text-sm font-medium text-white/80 mb-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs md:text-sm font-medium text-white/80 mb-1 md:mb-2">
                   {tab === 'playlist' ? 'ÇALMA LİSTESİ' : 'KOLEKSİYON'}
                 </p>
-                <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 text-balance">
+                <h1 className="text-2xl md:text-5xl font-bold text-white mb-2 md:mb-4 truncate">
                   {content.title}
                 </h1>
-                <p className="text-white/80">{content.subtitle}</p>
+                <p className="text-white/80 text-sm">{content.subtitle}</p>
               </div>
             </div>
           </div>
@@ -245,7 +242,7 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
           </div>
 
           {/* Track List */}
-          <div className="px-6">
+          <div className="px-2 md:px-6">
             {content.tracks.length === 0 ? (
               <div className="text-center py-20">
                 <p className="text-muted-foreground">
@@ -256,14 +253,6 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
               </div>
             ) : (
               <div className="space-y-1">
-                {/* Header Row */}
-                <div className="grid grid-cols-[16px_1fr_40px] md:grid-cols-[16px_1fr_120px_40px] gap-4 px-4 py-2 text-xs text-muted-foreground border-b border-border">
-                  <span>#</span>
-                  <span>BAŞLIK</span>
-                  <span className="hidden md:block text-right">SÜRE</span>
-                  <span></span>
-                </div>
-
                 {/* Tracks */}
                 {content.tracks.map((track, index) => {
                   const isCurrentTrack = currentTrack?.id === track.id
@@ -272,74 +261,62 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
                   return (
                     <div
                       key={`${track.id}-${index}`}
+                      // ✅ Tüm satıra tıklayınca çal (mobil için kritik)
+                      onClick={() => handlePlayTrack(track)}
                       className={cn(
-                        "group grid gap-4 px-4 py-2 rounded-md transition-colors items-center",
-                        // Sütun yapısı: # | info | süre | kalp | + | ...
-                        "grid-cols-[16px_1fr_auto_auto_auto]",
-                        "md:grid-cols-[16px_1fr_120px_auto_auto_auto]",
-                        "hover:bg-secondary/80",
+                        "group flex items-center gap-3 px-3 py-2 rounded-md transition-colors cursor-pointer",
+                        "hover:bg-secondary/80 active:bg-secondary",
                         isCurrentTrack && "bg-secondary"
                       )}
                     >
-                      {/* Number / Play */}
-                      <div className="flex items-center justify-center">
-                        <span className={cn(
-                          "text-sm group-hover:hidden",
-                          isCurrentTrack ? "text-primary" : "text-muted-foreground"
-                        )}>
-                          {isTrackPlaying ? (
-                            <div className="w-4 h-4 flex items-end justify-center gap-0.5">
-                              <div className="w-1 h-3 bg-primary animate-pulse" />
-                              <div className="w-1 h-4 bg-primary animate-pulse delay-75" />
-                              <div className="w-1 h-2 bg-primary animate-pulse delay-150" />
-                            </div>
-                          ) : (
-                            index + 1
-                          )}
-                        </span>
-                        <button
-                          className="hidden group-hover:block"
-                          onClick={() => handlePlayTrack(track)}
-                        >
-                          {isTrackPlaying ? (
-                            <Pause className="w-4 h-4 text-foreground" />
-                          ) : (
-                            <Play className="w-4 h-4 text-foreground" />
-                          )}
-                        </button>
-                      </div>
-
-                      {/* Track Info */}
-                      <div className="flex items-center gap-4 min-w-0">
+                      {/* Thumbnail + play overlay */}
+                      <div className="relative w-10 h-10 flex-shrink-0">
                         <img
                           src={track.thumbnail}
                           alt={track.title}
-                          className="w-10 h-10 rounded object-cover flex-shrink-0"
+                          className="w-10 h-10 rounded object-cover"
                         />
-                        <div className="min-w-0">
-                          <p className={cn(
-                            "font-medium text-sm truncate",
-                            isCurrentTrack ? "text-primary" : "text-foreground"
-                          )}>
-                            {track.title}
-                          </p>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {track.artist}
-                          </p>
+                        {/* Masaüstünde hover'da overlay, mobilde currentTrack ise göster */}
+                        <div className={cn(
+                          "absolute inset-0 bg-black/50 rounded flex items-center justify-center transition-opacity",
+                          "opacity-0 group-hover:opacity-100",
+                          isCurrentTrack && "opacity-100"
+                        )}>
+                          {isTrackPlaying ? (
+                            <Pause className="w-4 h-4 text-white" />
+                          ) : (
+                            <Play className="w-4 h-4 text-white ml-0.5" />
+                          )}
                         </div>
                       </div>
 
-                      {/* Duration */}
-                      <span className="hidden md:flex items-center justify-end text-sm text-muted-foreground">
+                      {/* Track Info */}
+                      <div className="flex-1 min-w-0">
+                        <p className={cn(
+                          "font-medium text-sm truncate",
+                          isCurrentTrack ? "text-primary" : "text-foreground"
+                        )}>
+                          {track.title}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {track.artist}
+                        </p>
+                      </div>
+
+                      {/* Süre — sadece masaüstü */}
+                      <span className="hidden md:block text-sm text-muted-foreground flex-shrink-0 w-12 text-right">
                         {track.duration}
                       </span>
 
-                      {/* ❤️ Like butonu — her zaman görünür (hover'da dolar) */}
+                      {/* ❤️ Like — mobilde her zaman, masaüstünde hover'da */}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="w-8 h-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => toggleLike(track)}
+                        className="w-8 h-8 flex-shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleLike(track)
+                        }}
                       >
                         <Heart
                           className={cn(
@@ -351,8 +328,10 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
                         />
                       </Button>
 
-                      {/* ➕ Çalma listesine ekle — her zaman görünür */}
-                      <AddToPlaylistButton track={track} />
+                      {/* ➕ Çalma listesine ekle */}
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <AddToPlaylistButton track={track} />
+                      </div>
 
                       {/* ••• Diğer seçenekler */}
                       <DropdownMenu>
@@ -360,19 +339,26 @@ export function LibraryView({ tab, playlistId }: LibraryViewProps) {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="w-8 h-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="w-8 h-8 flex-shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => e.stopPropagation()}
                           >
                             <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem onClick={() => addToQueue(track)}>
+                          <DropdownMenuItem onClick={(e) => {
+                            e.stopPropagation()
+                            addToQueue(track)
+                          }}>
                             <ListPlus className="w-4 h-4 mr-2" />
                             Sıraya Ekle
                           </DropdownMenuItem>
                           {tab === 'playlist' && playlistId && (
                             <DropdownMenuItem
-                              onClick={() => removeFromPlaylist(playlistId, track.id)}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                removeFromPlaylist(playlistId, track.id)
+                              }}
                               className="text-destructive"
                             >
                               <Trash2 className="w-4 h-4 mr-2" />
