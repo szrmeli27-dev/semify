@@ -3,8 +3,10 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
+import { useMusicPlayer } from "@/hooks/use-music-player"
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,15 +14,24 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Home, Search, Heart, User, LogOut, Loader2, PartyPopper } from 'lucide-react'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
+import { Home, Search, Heart, User, LogOut, Loader2, Library, ListMusic, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 
-type Tab = 'home' | 'search' | 'library' | 'liked' | 'recent' | 'playlist' | 'party'
+type Tab = 'home' | 'search' | 'library' | 'liked' | 'recent' | 'playlist'
 
 interface MobileNavProps {
   activeTab: Tab
   onTabChange: (tab: Tab) => void
+  selectedPlaylistId?: string | null
+  onPlaylistSelect?: (id: string) => void
 }
 
 interface Profile {
@@ -29,12 +40,14 @@ interface Profile {
   avatar_url: string | null
 }
 
-export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
+export function MobileNav({ activeTab, onTabChange, selectedPlaylistId, onPlaylistSelect }: MobileNavProps) {
   const [user, setUser] = useState<SupabaseUser | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [signingOut, setSigningOut] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
   const router = useRouter()
   const supabase = createClient()
+  const { playlists, likedSongs, recentlyPlayed } = useMusicPlayer()
 
   useEffect(() => {
     const getUser = async () => {
@@ -70,12 +83,14 @@ export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
     { id: 'home' as Tab, icon: Home, label: 'Ana Sayfa' },
     { id: 'search' as Tab, icon: Search, label: 'Ara' },
     { id: 'liked' as Tab, icon: Heart, label: 'Beğenilenler' },
-    { id: 'party' as Tab, icon: PartyPopper, label: 'Parti' },
   ]
+
+  const isLibraryTab = activeTab === 'library' || activeTab === 'recent' || activeTab === 'playlist'
 
   return (
     <nav className="bg-card/95 backdrop-blur-xl border-t border-border">
       <div className="flex items-center justify-around h-14">
+        {/* Ana nav itemları */}
         {navItems.map((item) => {
           const Icon = item.icon
           const isActive = activeTab === item.id
@@ -97,7 +112,98 @@ export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
           )
         })}
 
-        {/* Profile */}
+        {/* Kütüphane — Sheet ile açılır, çalma listeleri burada */}
+        <Sheet open={libraryOpen} onOpenChange={setLibraryOpen}>
+          <SheetTrigger asChild>
+            <Button
+              variant="ghost"
+              className={cn(
+                "flex-1 h-full flex-col gap-0.5 rounded-none py-2",
+                isLibraryTab && "text-primary"
+              )}
+            >
+              <Library className={cn("w-5 h-5", isLibraryTab ? "text-primary" : "text-muted-foreground")} />
+              <span className={cn("text-[10px]", isLibraryTab ? "text-primary" : "text-muted-foreground")}>
+                Kütüphane
+              </span>
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="bottom" className="h-[70vh] rounded-t-2xl px-0">
+            <SheetHeader className="px-4 pb-2">
+              <SheetTitle>Kütüphanem</SheetTitle>
+            </SheetHeader>
+            <ScrollArea className="h-full px-4 pb-8">
+              <div className="space-y-0.5">
+                {/* Son Dinlenenler */}
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    'w-full justify-start gap-3 h-12 px-2 font-normal',
+                    activeTab === 'recent' && 'bg-accent text-accent-foreground'
+                  )}
+                  onClick={() => {
+                    onTabChange('recent')
+                    setLibraryOpen(false)
+                  }}
+                >
+                  <div className="w-9 h-9 rounded bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shrink-0">
+                    <Clock className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="flex flex-col items-start">
+                    <span className="text-sm">Son Dinlenenler</span>
+                    {recentlyPlayed && recentlyPlayed.length > 0 && (
+                      <span className="text-xs text-muted-foreground">{recentlyPlayed.length} şarkı</span>
+                    )}
+                  </div>
+                </Button>
+
+                {/* Çalma Listeleri */}
+                {playlists && playlists.length > 0 && (
+                  <div className="pt-3">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider px-2 pb-2 font-medium">
+                      Çalma Listelerim
+                    </p>
+                    {playlists.map((playlist: any) => (
+                      <Button
+                        key={playlist.id}
+                        variant="ghost"
+                        className={cn(
+                          'w-full justify-start gap-3 h-12 px-2 font-normal',
+                          selectedPlaylistId === playlist.id && activeTab === 'playlist' &&
+                            'bg-accent text-accent-foreground'
+                        )}
+                        onClick={() => {
+                          onPlaylistSelect?.(playlist.id)
+                          onTabChange('playlist')
+                          setLibraryOpen(false)
+                        }}
+                      >
+                        <div className="w-9 h-9 rounded bg-gradient-to-br from-orange-500 to-rose-500 flex items-center justify-center shrink-0">
+                          <ListMusic className="w-4 h-4 text-white" />
+                        </div>
+                        <div className="flex flex-col items-start overflow-hidden">
+                          <span className="text-sm truncate w-full">{playlist.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {Array.isArray(playlist.tracks) ? playlist.tracks.length : 0} şarkı
+                          </span>
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Hiç çalma listesi yoksa */}
+                {(!playlists || playlists.length === 0) && (
+                  <p className="text-xs text-muted-foreground text-center py-6">
+                    Henüz çalma listen yok.
+                  </p>
+                )}
+              </div>
+            </ScrollArea>
+          </SheetContent>
+        </Sheet>
+
+        {/* Profil */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="flex-1 h-full flex-col gap-0.5 rounded-none py-2">
