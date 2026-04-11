@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMusicPlayer } from '@/hooks/use-music-player'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
@@ -23,48 +23,34 @@ declare global {
   }
 }
 
-// ── Çalma listesine ekle butonu ───────────────────────────────
 function AddToPlaylistBtn({ size = 'default' }: { size?: 'default' | 'sm' }) {
   const { currentTrack, playlists, addToPlaylist } = useMusicPlayer()
   const [open, setOpen] = useState(false)
   const [addedIds, setAddedIds] = useState<string[]>([])
-
   const trackId = currentTrack?.id
   useEffect(() => { setAddedIds([]) }, [trackId])
-
   if (!currentTrack) return null
 
   const handleAdd = async (playlistId: string, playlistName: string) => {
     await addToPlaylist(playlistId, currentTrack)
     setAddedIds((prev) => [...prev, playlistId])
-    toast({
-      title: 'Eklendi ✓',
-      description: `"${currentTrack.title}" → ${playlistName}`,
-    })
+    toast({ title: 'Eklendi ✓', description: `"${currentTrack.title}" → ${playlistName}` })
     setTimeout(() => setOpen(false), 700)
   }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={size === 'sm' ? 'w-9 h-9' : 'w-10 h-10'}
-          title="Çalma listesine ekle"
-        >
+        <Button variant="ghost" size="icon" className={size === 'sm' ? 'w-9 h-9' : 'w-10 h-10'} title="Çalma listesine ekle">
           <Plus className={cn(size === 'sm' ? 'w-4 h-4' : 'w-5 h-5', 'text-muted-foreground')} />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" side="top" className="w-52 p-1 mb-2">
-        <p className="text-xs text-muted-foreground px-2 py-1.5 font-medium border-b border-border mb-1">
-          Çalma listesi seç
-        </p>
+        <p className="text-xs text-muted-foreground px-2 py-1.5 font-medium border-b border-border mb-1">Çalma listesi seç</p>
         {playlists.length === 0 ? (
           <div className="flex flex-col items-center gap-1 py-4 px-2 text-center">
             <Music2 className="w-5 h-5 text-muted-foreground mb-1" />
             <p className="text-xs text-muted-foreground">Henüz çalma listen yok.</p>
-            <p className="text-xs text-muted-foreground">Sol panelden liste oluştur.</p>
           </div>
         ) : (
           playlists.map((playlist) => {
@@ -72,16 +58,9 @@ function AddToPlaylistBtn({ size = 'default' }: { size?: 'default' | 'sm' }) {
             const justAdded = addedIds.includes(playlist.id)
             const done = alreadyIn || justAdded
             return (
-              <button
-                key={playlist.id}
-                onClick={() => !done && handleAdd(playlist.id, playlist.name)}
-                className={cn(
-                  'w-full flex items-center gap-2 px-2 py-2 rounded-sm text-sm transition-colors',
-                  done
-                    ? 'text-muted-foreground cursor-default'
-                    : 'hover:bg-secondary cursor-pointer text-foreground'
-                )}
-              >
+              <button key={playlist.id} onClick={() => !done && handleAdd(playlist.id, playlist.name)}
+                className={cn('w-full flex items-center gap-2 px-2 py-2 rounded-sm text-sm transition-colors',
+                  done ? 'text-muted-foreground cursor-default' : 'hover:bg-secondary cursor-pointer text-foreground')}>
                 <Music2 className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
                 <span className="truncate flex-1 text-left">{playlist.name}</span>
                 {done && <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" />}
@@ -94,85 +73,87 @@ function AddToPlaylistBtn({ size = 'default' }: { size?: 'default' | 'sm' }) {
   )
 }
 
-// ── Ana Player ────────────────────────────────────────────────
 export function Player() {
   const {
     currentTrack, isPlaying, volume, progress, duration,
     togglePlay, setVolume, setProgress, setDuration,
     nextTrack, previousTrack, toggleLike, isLiked, queue,
-    addToRecentlyPlayed,
-    isRepeat, toggleRepeat,
+    addToRecentlyPlayed, isRepeat, toggleRepeat,
   } = useMusicPlayer()
 
   const playerRef = useRef<YT.Player | null>(null)
-  const playerContainerRef = useRef<HTMLDivElement>(null)
   const [isYTReady, setIsYTReady] = useState(false)
-  const [isPlayerReady, setIsPlayerReady] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [isShuffle, setIsShuffle] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const previousVolume = useRef(volume)
+
+  // Closure trap'i önlemek için ref'ler
   const isRepeatRef = useRef(isRepeat)
-  const pendingTrackId = useRef<string | null>(null)
-  const isCreatingPlayer = useRef(false)
-
+  const volumeRef = useRef(volume)
+  const isMutedRef = useRef(isMuted)
   useEffect(() => { isRepeatRef.current = isRepeat }, [isRepeat])
+  useEffect(() => { volumeRef.current = volume }, [volume])
+  useEffect(() => { isMutedRef.current = isMuted }, [isMuted])
 
-  // YouTube API yükleme
+  // ── YouTube API yükle ──
   useEffect(() => {
     if (window.YT?.Player) { setIsYTReady(true); return }
-    if (document.querySelector('script[src*="youtube.com/iframe_api"]')) {
-      // Script zaten eklendi, callback'i bekle
-      window.onYouTubeIframeAPIReady = () => setIsYTReady(true)
-      return
-    }
-    const tag = document.createElement('script')
-    tag.src = 'https://www.youtube.com/iframe_api'
-    document.head.appendChild(tag)
     window.onYouTubeIframeAPIReady = () => setIsYTReady(true)
+    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+      const tag = document.createElement('script')
+      tag.src = 'https://www.youtube.com/iframe_api'
+      document.head.appendChild(tag)
+    }
   }, [])
 
-  // Player oluştur veya şarkı değiştir
+  // ── Progress interval yardımcısı ──
+  function startInterval() {
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    intervalRef.current = setInterval(() => {
+      try {
+        const t = playerRef.current?.getCurrentTime?.() ?? 0
+        setProgress(t)
+      } catch {}
+    }, 1000)
+  }
+
+  function stopInterval() {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+  }
+
+  // ── Şarkı değişince ──
   useEffect(() => {
     if (!isYTReady || !currentTrack) return
+    stopInterval()
+    setProgress(0)
 
-    // Player zaten hazırsa sadece şarkıyı değiştir
-    if (playerRef.current && isPlayerReady) {
+    // Player zaten varsa sadece videoyu değiştir (daha hızlı)
+    if (playerRef.current) {
       try {
         playerRef.current.loadVideoById(currentTrack.id)
         return
       } catch {
-        // Player bozulduysa yeniden oluştur
         playerRef.current = null
-        setIsPlayerReady(false)
       }
     }
 
-    // Player oluşturuluyor, tekrar oluşturma
-    if (isCreatingPlayer.current) {
-      pendingTrackId.current = currentTrack.id
-      return
-    }
-
-    // Container hazır mı kontrol et
-    const container = document.getElementById('youtube-player-container')
+    // İlk kez player oluştur
+    const container = document.getElementById('yt-container')
     if (!container) return
+    container.innerHTML = ''
+    const div = document.createElement('div')
+    div.id = 'yt-player'
+    container.appendChild(div)
 
-    isCreatingPlayer.current = true
-    setIsPlayerReady(false)
-
-    // Önceki player'ı temizle
-    if (playerRef.current) {
-      try { playerRef.current.destroy() } catch {}
-      playerRef.current = null
-    }
-    container.innerHTML = '<div id="youtube-player"></div>'
-
-    playerRef.current = new window.YT.Player('youtube-player', {
-      height: '1',
-      width: '1',
+    playerRef.current = new window.YT.Player('yt-player', {
       videoId: currentTrack.id,
+      width: '1',
+      height: '1',
       playerVars: {
         autoplay: 1,
         controls: 0,
@@ -181,27 +162,25 @@ export function Player() {
         fs: 0,
         modestbranding: 1,
         rel: 0,
-        // Mobil için kritik: playsinline=1 olmadan iOS'ta tam ekran açılır
-        playsinline: 1,
-        origin: typeof window !== 'undefined' ? window.location.origin : '',
+        playsinline: 1,        // iOS Safari kritik
+        origin: window.location.origin,
       },
       events: {
-        onReady: (event: YT.PlayerEvent) => {
-          setIsPlayerReady(true)
-          isCreatingPlayer.current = false
-          event.target.setVolume(volume * 100)
-          // Mobilde autoplay bazen çalışmaz, manuel play çağır
-          event.target.playVideo()
-          setDuration(event.target.getDuration())
-
-          // Bekleyen şarkı varsa yükle
-          if (pendingTrackId.current && pendingTrackId.current !== currentTrack.id) {
-            event.target.loadVideoById(pendingTrackId.current)
-            pendingTrackId.current = null
-          }
+        onReady: (e: YT.PlayerEvent) => {
+          e.target.setVolume(isMutedRef.current ? 0 : volumeRef.current * 100)
+          e.target.playVideo()  // autoplay bazen çalışmaz, manuel tetikle
+          setDuration(e.target.getDuration() || 0)
+          startInterval()
         },
-        onStateChange: (event: YT.OnStateChangeEvent) => {
-          if (event.data === window.YT.PlayerState.ENDED) {
+        onStateChange: (e: YT.OnStateChangeEvent) => {
+          const S = window.YT.PlayerState
+          if (e.data === S.PLAYING) {
+            setDuration(playerRef.current?.getDuration() || 0)
+            startInterval()
+          }
+          if (e.data === S.PAUSED) stopInterval()
+          if (e.data === S.ENDED) {
+            stopInterval()
             if (isRepeatRef.current) {
               playerRef.current?.seekTo(0, true)
               playerRef.current?.playVideo()
@@ -209,52 +188,39 @@ export function Player() {
               nextTrack()
             }
           }
-          if (event.data === window.YT.PlayerState.PLAYING) {
-            setDuration(playerRef.current?.getDuration() || 0)
-          }
         },
         onError: () => {
-          isCreatingPlayer.current = false
-          // Hata durumunda sonraki şarkıya geç
+          stopInterval()
           nextTrack()
-        }
+        },
       },
     })
-  }, [isYTReady, currentTrack?.id])
+  }, [isYTReady, currentTrack?.id]) // eslint-disable-line
 
-  // Play/Pause senkronizasyonu
+  // ── isPlaying değişince senkronize et ──
   useEffect(() => {
-    if (!isPlayerReady || !playerRef.current) return
+    if (!playerRef.current) return
     try {
-      if (isPlaying) playerRef.current.playVideo?.()
-      else playerRef.current.pauseVideo?.()
+      if (isPlaying) {
+        playerRef.current.playVideo?.()
+        startInterval()
+      } else {
+        playerRef.current.pauseVideo?.()
+        stopInterval()
+      }
     } catch {}
-  }, [isPlaying, isPlayerReady])
+  }, [isPlaying]) // eslint-disable-line
 
-  // Ses seviyesi
+  // ── Ses değişince ──
   useEffect(() => {
-    if (!isPlayerReady || !playerRef.current) return
+    if (!playerRef.current) return
     try { playerRef.current.setVolume?.(isMuted ? 0 : volume * 100) } catch {}
-  }, [volume, isMuted, isPlayerReady])
+  }, [volume, isMuted])
 
-  // Son dinlenenlere ekle
+  // ── Son dinlenenlere ekle ──
   useEffect(() => {
     if (currentTrack) addToRecentlyPlayed(currentTrack)
-  }, [currentTrack?.id])
-
-  // Progress güncelleme
-  useEffect(() => {
-    if (intervalRef.current) clearInterval(intervalRef.current)
-    if (isPlaying && isPlayerReady && playerRef.current) {
-      intervalRef.current = setInterval(() => {
-        try {
-          const time = playerRef.current?.getCurrentTime() || 0
-          setProgress(time)
-        } catch {}
-      }, 1000)
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [isPlaying, isPlayerReady, setProgress])
+  }, [currentTrack?.id]) // eslint-disable-line
 
   const handleSeek = (value: number[]) => {
     setProgress(value[0])
@@ -271,34 +237,31 @@ export function Player() {
     else { previousVolume.current = volume; setVolume(0); setIsMuted(true) }
   }
 
-  const formatTime = (s: number) =>
+  const fmt = (s: number) =>
     `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`
+
   const progressPercent = duration > 0 ? (progress / duration) * 100 : 0
 
   return (
     <>
-      {/* 
-        ✅ KRİTİK: hidden yerine görünmez ama DOM'da var şekilde tutuyoruz.
-        visibility:hidden + pointer-events:none kullanıyoruz.
-        "display:none" veya "hidden" class, bazı mobil tarayıcılarda
-        YouTube player'ın çalışmasını engelliyor.
+      {/*
+        KRİTİK: display:none veya hidden KULLANMA.
+        Mobil tarayıcılar DOM'dan gizli elementlerdeki videoyu çalmayı engelliyor.
+        1x1px + opacity:0 ile görünmez ama aktif tutuyoruz.
       */}
       <div
-        id="youtube-player-container"
+        id="yt-container"
         style={{
           position: 'fixed',
+          width: 1,
+          height: 1,
           bottom: 0,
           left: 0,
-          width: '1px',
-          height: '1px',
           opacity: 0,
           pointerEvents: 'none',
           zIndex: -1,
         }}
-        ref={playerContainerRef}
-      >
-        <div id="youtube-player" />
-      </div>
+      />
 
       {/* ── Mobile Expanded Player ── */}
       {isExpanded && (
@@ -313,11 +276,8 @@ export function Player() {
 
           <div className="flex-1 flex items-center justify-center px-8">
             {currentTrack && (
-              <img
-                src={currentTrack.thumbnail}
-                alt={currentTrack.title}
-                className="w-full max-w-xs aspect-square rounded-2xl object-cover shadow-2xl"
-              />
+              <img src={currentTrack.thumbnail} alt={currentTrack.title}
+                className="w-full max-w-xs aspect-square rounded-2xl object-cover shadow-2xl" />
             )}
           </div>
 
@@ -332,13 +292,15 @@ export function Player() {
                   <Heart className={cn('w-6 h-6', isLiked(currentTrack.id) ? 'fill-primary text-primary' : 'text-muted-foreground')} />
                 </Button>
               </div>
+
               <div className="mb-5">
                 <Slider value={[progress]} max={duration || 100} step={1} onValueChange={handleSeek} />
                 <div className="flex justify-between mt-1">
-                  <span className="text-xs text-muted-foreground">{formatTime(progress)}</span>
-                  <span className="text-xs text-muted-foreground">{formatTime(duration)}</span>
+                  <span className="text-xs text-muted-foreground">{fmt(progress)}</span>
+                  <span className="text-xs text-muted-foreground">{fmt(duration)}</span>
                 </div>
               </div>
+
               <div className="flex items-center justify-between mb-5">
                 <Button variant="ghost" size="icon" className={cn('w-10 h-10', isShuffle && 'text-primary')} onClick={() => setIsShuffle(!isShuffle)}>
                   <Shuffle className="w-5 h-5" />
@@ -346,11 +308,7 @@ export function Player() {
                 <Button variant="ghost" size="icon" className="w-12 h-12" onClick={previousTrack}>
                   <SkipBack className="w-6 h-6" />
                 </Button>
-                <Button
-                  size="icon"
-                  className="w-16 h-16 rounded-full bg-foreground text-background hover:scale-105 transition-transform"
-                  onClick={togglePlay}
-                >
+                <Button size="icon" className="w-16 h-16 rounded-full bg-foreground text-background hover:scale-105 transition-transform" onClick={togglePlay}>
                   {isPlaying ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 ml-0.5" />}
                 </Button>
                 <Button variant="ghost" size="icon" className="w-12 h-12" onClick={nextTrack} disabled={queue.length === 0}>
@@ -360,11 +318,10 @@ export function Player() {
                   <Repeat className="w-5 h-5" />
                 </Button>
               </div>
+
               <div className="flex items-center gap-3">
                 <Button variant="ghost" size="icon" className="w-8 h-8" onClick={toggleMute}>
-                  {isMuted || volume === 0
-                    ? <VolumeX className="w-5 h-5 text-muted-foreground" />
-                    : <Volume2 className="w-5 h-5 text-muted-foreground" />}
+                  {isMuted || volume === 0 ? <VolumeX className="w-5 h-5 text-muted-foreground" /> : <Volume2 className="w-5 h-5 text-muted-foreground" />}
                 </Button>
                 <Slider value={[isMuted ? 0 : volume]} max={1} step={0.01} onValueChange={handleVolumeChange} className="flex-1" />
               </div>
@@ -376,19 +333,15 @@ export function Player() {
       {/* ── Player Bar ── */}
       <div className="bg-card/95 backdrop-blur-xl border-t border-border flex-shrink-0">
         <div className="h-0.5 bg-border">
-          <div className="h-full bg-primary transition-all" style={{ width: `${progressPercent}%` }} />
+          <div className="h-full bg-primary transition-all duration-500" style={{ width: `${progressPercent}%` }} />
         </div>
 
         {currentTrack ? (
           <>
-            {/* ── Desktop ── */}
+            {/* Desktop */}
             <div className="hidden md:flex items-center justify-between h-20 px-4 max-w-screen-2xl mx-auto">
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <img
-                  src={currentTrack.thumbnail}
-                  alt={currentTrack.title}
-                  className="w-14 h-14 rounded-md object-cover shadow-lg flex-shrink-0"
-                />
+                <img src={currentTrack.thumbnail} alt={currentTrack.title} className="w-14 h-14 rounded-md object-cover shadow-lg flex-shrink-0" />
                 <div className="min-w-0">
                   <h4 className="font-semibold text-sm truncate text-foreground max-w-[160px]">{currentTrack.title}</h4>
                   <p className="text-xs text-muted-foreground truncate max-w-[140px]">{currentTrack.artist}</p>
@@ -418,9 +371,9 @@ export function Player() {
                   </Button>
                 </div>
                 <div className="flex items-center gap-2 w-full">
-                  <span className="text-xs text-muted-foreground w-10 text-right">{formatTime(progress)}</span>
+                  <span className="text-xs text-muted-foreground w-10 text-right">{fmt(progress)}</span>
                   <Slider value={[progress]} max={duration || 100} step={1} onValueChange={handleSeek} className="flex-1" />
-                  <span className="text-xs text-muted-foreground w-10">{formatTime(duration)}</span>
+                  <span className="text-xs text-muted-foreground w-10">{fmt(duration)}</span>
                 </div>
               </div>
 
@@ -429,19 +382,14 @@ export function Player() {
                   <ListMusic className="w-5 h-5 text-muted-foreground" />
                 </Button>
                 <Button variant="ghost" size="icon" className="w-8 h-8" onClick={toggleMute}>
-                  {isMuted || volume === 0
-                    ? <VolumeX className="w-5 h-5 text-muted-foreground" />
-                    : <Volume2 className="w-5 h-5 text-muted-foreground" />}
+                  {isMuted || volume === 0 ? <VolumeX className="w-5 h-5 text-muted-foreground" /> : <Volume2 className="w-5 h-5 text-muted-foreground" />}
                 </Button>
                 <Slider value={[isMuted ? 0 : volume]} max={1} step={0.01} onValueChange={handleVolumeChange} className="w-24" />
               </div>
             </div>
 
-            {/* ── Mobile Mini Player ── */}
-            <div
-              className="md:hidden flex items-center gap-3 h-16 px-3 cursor-pointer"
-              onClick={() => setIsExpanded(true)}
-            >
+            {/* Mobile Mini Player */}
+            <div className="md:hidden flex items-center gap-3 h-16 px-3 cursor-pointer" onClick={() => setIsExpanded(true)}>
               <img src={currentTrack.thumbnail} alt={currentTrack.title} className="w-10 h-10 rounded-md object-cover flex-shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-sm text-foreground truncate">{currentTrack.title}</p>
