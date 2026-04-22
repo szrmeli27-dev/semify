@@ -18,7 +18,25 @@ async function getUserId(): Promise<string | null> {
 // Auth değişince cache'i temizle
 supabase.auth.onAuthStateChange((event, session) => {
   _cachedUserId = session?.user?.id ?? null
+  // Logout olunca now_playing'i temizle
+  if (event === 'SIGNED_OUT' && _cachedUserId) {
+    supabase.from('now_playing').delete().eq('user_id', _cachedUserId)
+  }
 })
+
+// Semify kapanınca now_playing'i temizle
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', async () => {
+    const userId = _cachedUserId
+    if (userId) {
+      // sendBeacon ile senkron silme (sayfa kapanmadan önce)
+      const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/now_playing?user_id=eq.${userId}`
+      navigator.sendBeacon(url, new Blob([JSON.stringify({})], { type: 'application/json' }))
+      // Fallback: normal delete
+      supabase.from('now_playing').delete().eq('user_id', userId)
+    }
+  })
+}
 
 // ── now_playing tablosuna yazar (OtCord entegrasyonu) ──
 async function syncNowPlaying(
