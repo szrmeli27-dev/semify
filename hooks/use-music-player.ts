@@ -6,12 +6,21 @@ import { createClient } from '@/lib/supabase/client'
 
 const supabase = createClient()
 
+// ── userId cache — her seferinde auth isteği atmayı önler ──
+let _cachedUserId: string | null = null
 async function getUserId(): Promise<string | null> {
+  if (_cachedUserId) return _cachedUserId
   const { data } = await supabase.auth.getUser()
-  return data.user?.id ?? null
+  _cachedUserId = data.user?.id ?? null
+  return _cachedUserId
 }
 
-// now_playing tablosuna yazar (OtCord entegrasyonu)
+// Auth değişince cache'i temizle
+supabase.auth.onAuthStateChange((event, session) => {
+  _cachedUserId = session?.user?.id ?? null
+})
+
+// ── now_playing tablosuna yazar (OtCord entegrasyonu) ──
 async function syncNowPlaying(
   userId: string,
   track: Track | null,
@@ -34,19 +43,22 @@ async function syncNowPlaying(
   }, { onConflict: 'user_id' })
 }
 
-// Throttle: çok sık yazmayı önlemek için (max 1 saniyede 1 kez)
-let syncTimeout: ReturnType<typeof setTimeout> | null = null
-function throttledSync(
-  userId: string,
-  track: Track | null,
-  progress: number,
-  duration: number,
-  isPlaying: boolean
-) {
-  if (syncTimeout) clearTimeout(syncTimeout)
-  syncTimeout = setTimeout(() => {
-    syncNowPlaying(userId, track, progress, duration, isPlaying)
-  }, 1000)
+// ── 3 saniyede bir otomatik sync (progress takibi için) ──
+let _syncInterval: ReturnType<typeof setInterval> | null = null
+
+function startProgressSync(getState: () => { currentTrack: Track | null, progress: number, duration: number, isPlaying: boolean }) {
+  if (_syncInterval) clearInterval(_syncInterval)
+  _syncInterval = setInterval(async () => {
+    const userId = await getUserId()
+    if (!userId) return
+    const { currentTrack, progress, duration, isPlaying } = getState()
+    if (!currentTrack) return
+    syncNowPlaying(userId, currentTrack, progress, duration, isPlaying)
+  }, 3000)
+}
+
+function stopProgressSync() {
+  if (_syncInterval) { clearInterval(_syncInterval); _syncInterval = null }
 }
 
 interface Playlist {
@@ -75,8 +87,8 @@ interface MusicPlayerState {
   playTrack: (track: Track, queue?: Track[]) => Promise<void>
   togglePlay: () => Promise<void>
   setVolume: (volume: number) => void
-  setProgress: (progress: number) => Promise<void>
-  setDuration: (duration: number) => Promise<void>
+  setProgress: (progress: number) => void
+  setDuration: (duration: number) => void
   nextTrack: () => Promise<void>
   previousTrack: () => Promise<void>
   addToQueue: (track: Track) => void
@@ -171,6 +183,7 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
     if (userId) {
       const { duration } = get()
       syncNowPlaying(userId, track, 0, duration, true)
+      startProgressSync(() => get())
     }
   },
 
@@ -180,25 +193,16 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
     if (userId) {
       const { currentTrack, progress, duration, isPlaying } = get()
       syncNowPlaying(userId, currentTrack, progress, duration, isPlaying)
+      if (isPlaying) {
+        startProgressSync(() => get())
+      } else {
+        stopProgressSync()
+      }
     }
   },
   setVolume: (volume) => set({ volume }),
-  setProgress: async (progress) => {
-    set({ progress })
-    const userId = await getUserId()
-    if (userId) {
-      const { currentTrack, duration, isPlaying } = get()
-      throttledSync(userId, currentTrack, progress, duration, isPlaying)
-    }
-  },
-  setDuration: async (duration) => {
-    set({ duration })
-    const userId = await getUserId()
-    if (userId) {
-      const { currentTrack, progress, isPlaying } = get()
-      throttledSync(userId, currentTrack, progress, duration, isPlaying)
-    }
-  },
+  setProgress: (progress) => set({ progress }),
+  setDuration: (duration) => set({ duration }),
 
   // ✅ DÜZELTİLDİ: isRepeat açıksa mevcut şarkıyı sıfırdan başlat
   nextTrack: async () => {
