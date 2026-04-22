@@ -72,7 +72,7 @@ function startProgressSync(getState: () => { currentTrack: Track | null, progres
     const { currentTrack, progress, duration, isPlaying } = getState()
     if (!currentTrack) return
     syncNowPlaying(userId, currentTrack, progress, duration, isPlaying)
-  }, 3000)
+  }, 10000)
 }
 
 function stopProgressSync() {
