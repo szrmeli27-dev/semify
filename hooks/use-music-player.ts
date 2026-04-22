@@ -11,6 +11,44 @@ async function getUserId(): Promise<string | null> {
   return data.user?.id ?? null
 }
 
+// now_playing tablosuna yazar (OtCord entegrasyonu)
+async function syncNowPlaying(
+  userId: string,
+  track: Track | null,
+  progress: number,
+  duration: number,
+  isPlaying: boolean
+) {
+  if (!track) {
+    await supabase.from('now_playing').delete().eq('user_id', userId)
+    return
+  }
+  await supabase.from('now_playing').upsert({
+    user_id: userId,
+    track_id: track.id,
+    track_data: track,
+    progress,
+    duration,
+    is_playing: isPlaying,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id' })
+}
+
+// Throttle: çok sık yazmayı önlemek için (max 1 saniyede 1 kez)
+let syncTimeout: ReturnType<typeof setTimeout> | null = null
+function throttledSync(
+  userId: string,
+  track: Track | null,
+  progress: number,
+  duration: number,
+  isPlaying: boolean
+) {
+  if (syncTimeout) clearTimeout(syncTimeout)
+  syncTimeout = setTimeout(() => {
+    syncNowPlaying(userId, track, progress, duration, isPlaying)
+  }, 1000)
+}
+
 interface Playlist {
   id: string
   name: string
@@ -34,13 +72,13 @@ interface MusicPlayerState {
 
   loadUserData: () => Promise<void>
   setCurrentTrack: (track: Track) => void
-  playTrack: (track: Track, queue?: Track[]) => void
-  togglePlay: () => void
+  playTrack: (track: Track, queue?: Track[]) => Promise<void>
+  togglePlay: () => Promise<void>
   setVolume: (volume: number) => void
-  setProgress: (progress: number) => void
-  setDuration: (duration: number) => void
-  nextTrack: () => void
-  previousTrack: () => void
+  setProgress: (progress: number) => Promise<void>
+  setDuration: (duration: number) => Promise<void>
+  nextTrack: () => Promise<void>
+  previousTrack: () => Promise<void>
   addToQueue: (track: Track) => void
   clearQueue: () => void
   toggleLike: (track: Track) => void
@@ -115,7 +153,7 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
 
   setCurrentTrack: (track) => set({ currentTrack: track }),
 
-  playTrack: (track, queue) => {
+  playTrack: async (track, queue) => {
     get().addToRecentlyPlayed(track)
     if (queue) {
       const index = queue.findIndex((t) => t.id === track.id)
@@ -129,19 +167,46 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
     } else {
       set({ currentTrack: track, isPlaying: true, progress: 0 })
     }
+    const userId = await getUserId()
+    if (userId) {
+      const { duration } = get()
+      syncNowPlaying(userId, track, 0, duration, true)
+    }
   },
 
-  togglePlay: () => set((s) => ({ isPlaying: !s.isPlaying })),
+  togglePlay: async () => {
+    set((s) => ({ isPlaying: !s.isPlaying }))
+    const userId = await getUserId()
+    if (userId) {
+      const { currentTrack, progress, duration, isPlaying } = get()
+      syncNowPlaying(userId, currentTrack, progress, duration, isPlaying)
+    }
+  },
   setVolume: (volume) => set({ volume }),
-  setProgress: (progress) => set({ progress }),
-  setDuration: (duration) => set({ duration }),
+  setProgress: async (progress) => {
+    set({ progress })
+    const userId = await getUserId()
+    if (userId) {
+      const { currentTrack, duration, isPlaying } = get()
+      throttledSync(userId, currentTrack, progress, duration, isPlaying)
+    }
+  },
+  setDuration: async (duration) => {
+    set({ duration })
+    const userId = await getUserId()
+    if (userId) {
+      const { currentTrack, progress, isPlaying } = get()
+      throttledSync(userId, currentTrack, progress, duration, isPlaying)
+    }
+  },
 
   // ✅ DÜZELTİLDİ: isRepeat açıksa mevcut şarkıyı sıfırdan başlat
-  nextTrack: () => {
+  nextTrack: async () => {
     const { queue, currentIndex, isRepeat, currentTrack } = get()
     if (isRepeat && currentTrack) {
-      // Döngü açıksa aynı şarkıyı baştan başlat
       set({ progress: 0, isPlaying: true })
+      const userId = await getUserId()
+      if (userId) syncNowPlaying(userId, currentTrack, 0, get().duration, true)
       return
     }
     if (queue.length > 0 && currentIndex < queue.length - 1) {
@@ -149,15 +214,20 @@ export const useMusicPlayer = create<MusicPlayerState>()((set, get) => ({
       const next = queue[nextIndex]
       get().addToRecentlyPlayed(next)
       set({ currentTrack: next, currentIndex: nextIndex, progress: 0 })
+      const userId = await getUserId()
+      if (userId) syncNowPlaying(userId, next, 0, 0, true)
     }
   },
 
-  previousTrack: () => {
+  previousTrack: async () => {
     const { queue, currentIndex, progress } = get()
     if (progress > 3) { set({ progress: 0 }); return }
     if (queue.length > 0 && currentIndex > 0) {
       const prevIndex = currentIndex - 1
-      set({ currentTrack: queue[prevIndex], currentIndex: prevIndex, progress: 0 })
+      const prev = queue[prevIndex]
+      set({ currentTrack: prev, currentIndex: prevIndex, progress: 0 })
+      const userId = await getUserId()
+      if (userId) syncNowPlaying(userId, prev, 0, 0, true)
     }
   },
 
